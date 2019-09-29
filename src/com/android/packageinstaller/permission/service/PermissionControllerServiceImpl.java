@@ -47,8 +47,11 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.android.packageinstaller.permission.model.AppPermissionGroup;
+import com.android.packageinstaller.permission.model.AppPermissionUsage;
+import com.android.packageinstaller.permission.model.AppPermissionUsage.GroupUsage;
 import com.android.packageinstaller.permission.model.AppPermissions;
 import com.android.packageinstaller.permission.model.Permission;
+import com.android.packageinstaller.permission.model.PermissionUsages;
 import com.android.packageinstaller.permission.utils.Utils;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -67,9 +70,8 @@ import java.util.function.IntConsumer;
 /**
  * Calls from the system into the permission controller.
  *
- * All methods are called async beside the backup related method. For these we force to use the
- * async-task single thread executor so that multiple parallel backups don't override the delayed
- * the backup state racily.
+ * All reading methods are called async, and all writing method are called on the AsyncTask single
+ * thread executor so that multiple writes won't override each other concurrently.
  */
 public final class PermissionControllerServiceImpl extends PermissionControllerService {
     private static final String LOG_TAG = PermissionControllerServiceImpl.class.getSimpleName();
@@ -210,8 +212,8 @@ public final class PermissionControllerServiceImpl extends PermissionControllerS
     public void onRevokeRuntimePermissions(@NonNull Map<String, List<String>> request,
             boolean doDryRun, int reason, @NonNull String callerPackageName,
             @NonNull Consumer<Map<String, List<String>>> callback) {
-        AsyncTask.THREAD_POOL_EXECUTOR.execute(() -> callback.accept(
-                onRevokeRuntimePermissions(request, doDryRun, reason, callerPackageName)));
+        AsyncTask.execute(() -> callback.accept(onRevokeRuntimePermissions(request, doDryRun,
+                reason, callerPackageName)));
     }
 
     private @NonNull Map<String, List<String>> onRevokeRuntimePermissions(
@@ -403,7 +405,7 @@ public final class PermissionControllerServiceImpl extends PermissionControllerS
     @Override
     public void onRevokeRuntimePermission(@NonNull String packageName,
             @NonNull String permissionName, @NonNull Runnable callback) {
-        AsyncTask.THREAD_POOL_EXECUTOR.execute(() -> {
+        AsyncTask.execute(() -> {
             onRevokeRuntimePermission(packageName, permissionName);
             callback.run();
         });
@@ -496,16 +498,60 @@ public final class PermissionControllerServiceImpl extends PermissionControllerS
 
     private @NonNull List<RuntimePermissionUsageInfo> onGetPermissionUsages(
             boolean countSystem, long numMillis) {
-        return Collections.emptyList();
+        ArrayMap<String, Integer> groupUsers = new ArrayMap<>();
+
+        long curTime = System.currentTimeMillis();
+        PermissionUsages usages = new PermissionUsages(this);
+        long filterTimeBeginMillis = Math.max(System.currentTimeMillis() - numMillis, 0);
+        usages.load(null, null, filterTimeBeginMillis, Long.MAX_VALUE,
+                PermissionUsages.USAGE_FLAG_LAST | PermissionUsages.USAGE_FLAG_HISTORICAL, null,
+                false, false, null, true);
+
+        List<AppPermissionUsage> appPermissionUsages = usages.getUsages();
+        int numApps = appPermissionUsages.size();
+        for (int appNum = 0; appNum < numApps; appNum++) {
+            AppPermissionUsage appPermissionUsage = appPermissionUsages.get(appNum);
+
+            List<GroupUsage> appGroups = appPermissionUsage.getGroupUsages();
+            int numGroups = appGroups.size();
+            for (int groupNum = 0; groupNum < numGroups; groupNum++) {
+                GroupUsage groupUsage = appGroups.get(groupNum);
+
+                if (groupUsage.getLastAccessTime() < filterTimeBeginMillis) {
+                    continue;
+                }
+                if (!shouldShowPermission(this, groupUsage.getGroup())) {
+                    continue;
+                }
+                if (!countSystem && !Utils.isGroupOrBgGroupUserSensitive(groupUsage.getGroup())) {
+                    continue;
+                }
+
+                String groupName = groupUsage.getGroup().getName();
+                Integer numUsers = groupUsers.get(groupName);
+                if (numUsers == null) {
+                    groupUsers.put(groupName, 1);
+                } else {
+                    groupUsers.put(groupName, numUsers + 1);
+                }
+            }
+        }
+
+        List<RuntimePermissionUsageInfo> users = new ArrayList<>();
+        int numGroups = groupUsers.size();
+        for (int groupNum = 0; groupNum < numGroups; groupNum++) {
+            users.add(new RuntimePermissionUsageInfo(groupUsers.keyAt(groupNum),
+                    groupUsers.valueAt(groupNum)));
+        }
+        return users;
     }
 
     @Override
     public void onSetRuntimePermissionGrantStateByDeviceAdmin(@NonNull String callerPackageName,
             @NonNull String packageName, @NonNull String unexpandedPermission, int grantState,
             @NonNull Consumer<Boolean> callback) {
-        AsyncTask.THREAD_POOL_EXECUTOR.execute(() -> callback.accept(
-                onSetRuntimePermissionGrantStateByDeviceAdmin(callerPackageName, packageName,
-                        unexpandedPermission, grantState)));
+        AsyncTask.execute(() -> callback.accept(onSetRuntimePermissionGrantStateByDeviceAdmin(
+                callerPackageName, packageName, unexpandedPermission, grantState)));
     }
 
     private boolean onSetRuntimePermissionGrantStateByDeviceAdmin(@NonNull String callerPackageName,
@@ -568,7 +614,7 @@ public final class PermissionControllerServiceImpl extends PermissionControllerS
 
     @Override
     public void onGrantOrUpgradeDefaultRuntimePermissions(@NonNull Runnable callback) {
-        AsyncTask.THREAD_POOL_EXECUTOR.execute(() -> {
+        AsyncTask.execute(() -> {
             onGrantOrUpgradeDefaultRuntimePermissions();
             callback.run();
         });
