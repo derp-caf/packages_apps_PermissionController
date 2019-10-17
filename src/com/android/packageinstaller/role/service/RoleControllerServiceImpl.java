@@ -29,7 +29,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.WorkerThread;
 
 import com.android.packageinstaller.permission.utils.CollectionUtils;
-import com.android.packageinstaller.permission.utils.Utils;
 import com.android.packageinstaller.role.model.Role;
 import com.android.packageinstaller.role.model.Roles;
 import com.android.packageinstaller.role.utils.PackageUtils;
@@ -168,10 +167,6 @@ public class RoleControllerServiceImpl extends RoleControllerService {
                 }
             }
         }
-
-        // Load data on this thread instead of background.
-        // TODO: Move out of this thread
-        Utils.updateUserSensitive(getApplication(), Process.myUserHandle());
 
         return true;
     }
@@ -407,6 +402,27 @@ public class RoleControllerServiceImpl extends RoleControllerService {
             return false;
         }
         return role.isPackageQualified(packageName, this);
+    }
+
+    @Override
+    public boolean onIsApplicationVisibleForRole(@NonNull String roleName,
+            @NonNull String packageName) {
+        Role role = Roles.get(this).get(roleName);
+        if (role == null) {
+            return false;
+        }
+        if (!role.isAvailable(this)) {
+            return false;
+        }
+        if (!role.isPackageQualified(packageName, this)) {
+            return false;
+        }
+        ApplicationInfo applicationInfo = PackageUtils.getApplicationInfo(packageName, this);
+        if (applicationInfo == null || !role.isApplicationVisibleAsUser(applicationInfo,
+                Process.myUserHandle(), this)) {
+            return false;
+        }
+        return true;
     }
 
     @Override
