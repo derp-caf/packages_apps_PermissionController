@@ -22,7 +22,7 @@
     <string name="cancel" msgid="8360346460165114585">"Peruuta"</string>
     <string name="app_not_found_dlg_title" msgid="2692335460569505484">"Sovellusta ei löydy"</string>
     <string name="grant_dialog_button_deny" msgid="2176510645406614340">"Estä"</string>
-    <string name="grant_dialog_button_deny_and_dont_ask_again" msgid="7583601276815031679">"Hylkää äläkä kysy uudelleen"</string>
+    <string name="grant_dialog_button_deny_and_dont_ask_again" msgid="7583601276815031679">"Estä äläkä kysy uudelleen"</string>
     <string name="grant_dialog_button_deny_background" msgid="4054411855048240271">"Säilytä käytön aikainen käyttöoikeus"</string>
     <string name="grant_dialog_button_deny_background_and_dont_ask_again" msgid="999878458921486616">"Säilytä äläkä kysy uudelleen"</string>
     <string name="grant_dialog_button_more_info" msgid="2218220771432058426">"Lisätietoja"</string>
@@ -39,6 +39,7 @@
     <string name="grant_dialog_button_allow" msgid="4616529495342337095">"Salli"</string>
     <string name="grant_dialog_button_allow_always" msgid="6276498220009293138">"Salli aina"</string>
     <string name="grant_dialog_button_allow_foreground" msgid="3906778905426475934">"Salli vain, kun sovellus on käytössä"</string>
+    <string name="grant_dialog_button_allow_one_time" msgid="2142276612360065979">"Salli vain tällä kertaa"</string>
     <string name="grant_dialog_button_allow_background" msgid="7108882589014856771">"Salli aina"</string>
     <string name="app_permissions_breadcrumb" msgid="3390836200791539264">"Sovellukset"</string>
     <string name="app_permissions" msgid="3146758905824597178">"Sovellusten käyttöoikeudet"</string>

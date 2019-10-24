@@ -21,6 +21,9 @@ import static android.view.WindowManager.LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTE
 import static com.android.packageinstaller.Constants.INVALID_SESSION_ID;
 
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.PermissionGroupInfo;
+import android.content.pm.PermissionInfo;
 import android.os.Bundle;
 import android.os.UserHandle;
 import android.util.Log;
@@ -36,6 +39,8 @@ import com.android.packageinstaller.permission.ui.handheld.AppPermissionFragment
 import com.android.packageinstaller.permission.utils.LocationUtils;
 import com.android.packageinstaller.permission.utils.Utils;
 import com.android.permissioncontroller.R;
+
+import java.util.List;
 
 /**
  * Manage a single permission of a single app
@@ -59,22 +64,42 @@ public final class AppPermissionActivity extends FragmentActivity {
 
         String packageName = getIntent().getStringExtra(Intent.EXTRA_PACKAGE_NAME);
         if (packageName == null) {
-            Log.i(LOG_TAG, "Missing mandatory argument EXTRA_PACKAGE_NAME");
+            Log.e(LOG_TAG, "Missing mandatory argument EXTRA_PACKAGE_NAME");
             finish();
             return;
         }
 
         String permissionName = getIntent().getStringExtra(Intent.EXTRA_PERMISSION_NAME);
-        if (permissionName == null) {
-            Log.i(LOG_TAG, "Missing mandatory argument EXTRA_PERMISSION_NAME");
+        String groupName = getIntent().getStringExtra(Intent.EXTRA_PERMISSION_GROUP_NAME);
+        if (permissionName == null && groupName == null) {
+            Log.e(LOG_TAG, "Missing argument EXTRA_PERMISSION_NAME or "
+                    + "EXTRA_PERMISSION_GROUP_NAME, at least one must be present.");
             finish();
             return;
         }
-        String groupName = Utils.getGroupOfPlatformPermission(permissionName);
+        if (groupName == null) {
+            groupName = Utils.getGroupOfPlatformPermission(permissionName);
+            PermissionInfo permission;
+            try {
+                permission = getPackageManager().getPermissionInfo(permissionName, 0);
+                if (!permission.packageName.equals(Utils.OS_PKG)) {
+                    List<PermissionGroupInfo> groupInfos =
+                            getPackageManager().getAllPermissionGroups(0);
+                    for (PermissionGroupInfo groupInfo : groupInfos) {
+                        if (groupInfo.name.equals(permission.group)) {
+                            groupName = permission.group;
+                        }
+                    }
+
+                }
+            } catch (PackageManager.NameNotFoundException e) {
+                groupName = null;
+            }
+        }
 
         UserHandle userHandle = getIntent().getParcelableExtra(Intent.EXTRA_USER);
         if (userHandle == null) {
-            Log.i(LOG_TAG, "Missing mandatory argument EXTRA_USER");
+            Log.e(LOG_TAG, "Missing mandatory argument EXTRA_USER");
             finish();
             return;
         }
