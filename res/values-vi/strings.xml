@@ -39,6 +39,7 @@
     <string name="grant_dialog_button_allow" msgid="4616529495342337095">"Cho phép"</string>
     <string name="grant_dialog_button_allow_always" msgid="6276498220009293138">"Luôn cho phép"</string>
     <string name="grant_dialog_button_allow_foreground" msgid="3906778905426475934">"Chỉ cho phép khi dùng ứng dụng"</string>
+    <string name="grant_dialog_button_allow_one_time" msgid="2142276612360065979">"Chỉ cho phép lần này"</string>
     <string name="grant_dialog_button_allow_background" msgid="7108882589014856771">"Luôn cho phép"</string>
     <string name="app_permissions_breadcrumb" msgid="3390836200791539264">"Ứng dụng"</string>
     <string name="app_permissions" msgid="3146758905824597178">"Quyền của ứng dụng"</string>
@@ -306,5 +307,5 @@
     <string name="adjust_user_sensitive_per_app_header" msgid="3463088084190391428">"Hiển thị mức sử dụng của"</string>
     <string name="assistant_record_audio_user_sensitive_title" msgid="4527980682419054323">"Hiển thị tính năng phát hiện trình kích hoạt của Trợ lý"</string>
     <string name="assistant_record_audio_user_sensitive_summary" msgid="4952742951700902553">"Hiển thị biểu tượng trong thanh trạng thái khi sử dụng micrô để kích hoạt trợ lý thoại"</string>
-    <string name="permgrouprequest_storage_isolated" msgid="6769845877344258537">"Bạn có cho phép &lt;b&gt;<xliff:g id="APP_NAME">%1$s</xliff:g>&lt;/b&gt; truy cập vào ảnh và nội dung nghe nhìn trên thiết bị của mình không?"</string>
+    <string name="permgrouprequest_storage_isolated" msgid="6769845877344258537">"Cho phép &lt;b&gt;<xliff:g id="APP_NAME">%1$s</xliff:g>&lt;/b&gt; truy cập ảnh và nội dung đa phương tiện trên thiết bị?"</string>
 </resources>

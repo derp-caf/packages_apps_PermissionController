@@ -39,6 +39,7 @@
     <string name="grant_dialog_button_allow" msgid="4616529495342337095">"అనుమతించు"</string>
     <string name="grant_dialog_button_allow_always" msgid="6276498220009293138">"ఎల్ల‌ప్పుడూ అనుమతించు"</string>
     <string name="grant_dialog_button_allow_foreground" msgid="3906778905426475934">"యాప్‌ను ఉపయోగిస్తున్నప్పుడు మాత్రమే అనుమతించు"</string>
+    <string name="grant_dialog_button_allow_one_time" msgid="2142276612360065979">"ఈసారి మాత్రమే అనుమతించు"</string>
     <string name="grant_dialog_button_allow_background" msgid="7108882589014856771">"అన్ని సమయాలలో అనుమతించు"</string>
     <string name="app_permissions_breadcrumb" msgid="3390836200791539264">"యాప్‌లు"</string>
     <string name="app_permissions" msgid="3146758905824597178">"యాప్ అనుమతులు"</string>
@@ -306,5 +307,5 @@
     <string name="adjust_user_sensitive_per_app_header" msgid="3463088084190391428">"కింది వాటికి వినియోగాన్ని హైలైట్ చేయండి"</string>
     <string name="assistant_record_audio_user_sensitive_title" msgid="4527980682419054323">"అసిస్టెంట్ ట్రిగ్గర్ గుర్తింపును చూపు"</string>
     <string name="assistant_record_audio_user_sensitive_summary" msgid="4952742951700902553">"వాయిస్ అసిస్టెంట్‌ను యాక్టివేట్ చేయడానికి మైక్రోఫోన్‌ను ఉపయోగించినప్పుడు, స్థితి పట్టీలో చిహ్నాన్ని చూపుతుంది"</string>
-    <string name="permgrouprequest_storage_isolated" msgid="6769845877344258537">"మీ పరికరంలో ఫోటోలు, మీడియాను యాక్సెస్ చేయుటకు &lt;b&gt;<xliff:g id="APP_NAME">%1$s</xliff:g>&lt;/b&gt;ను అనుమతించాలా?"</string>
+    <string name="permgrouprequest_storage_isolated" msgid="6769845877344258537">"మీ పరికరంలో ఫోటోలు, మీడియాను యాక్సెస్ చేసేందుకు &lt;b&gt;<xliff:g id="APP_NAME">%1$s</xliff:g>&lt;/b&gt;ను అనుమతించాలా?"</string>
 </resources>

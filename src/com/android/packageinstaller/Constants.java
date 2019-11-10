@@ -74,6 +74,13 @@ public class Constants {
     public static final String PREFERENCES_FILE = "preferences";
 
     /**
+     * Key in the generic shared preferences that stores when the location access feature
+     * was enabled, specifically when it was picked up by the code managing the feature.
+     */
+    public static final String KEY_LOCATION_ACCESS_CHECK_ENABLED_TIME =
+            "location_access_check_enabled_time";
+
+    /**
      * Key in the generic shared preferences that stores when the last notification was shown by
      * {@link com.android.packageinstaller.permission.service.LocationAccessCheck}
      */
@@ -147,4 +154,9 @@ public class Constants {
      * Invalid session id.
      */
     public static final long INVALID_SESSION_ID = 0;
+
+    /**
+     * File name for persisted one-time permissions that will need to be revoked
+     */
+    public static final String ONE_TIME_NEED_TO_REVOKE_FILE_NAME = "one_time_to_revoke";
 }

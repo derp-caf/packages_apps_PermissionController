@@ -29,10 +29,12 @@ import static com.android.packageinstaller.PermissionControllerStatsLog.PERMISSI
 import static com.android.packageinstaller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED;
 import static com.android.packageinstaller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED_WITH_PREJUDICE;
 import static com.android.packageinstaller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED;
+import static com.android.packageinstaller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED_ONE_TIME;
 import static com.android.packageinstaller.permission.ui.GrantPermissionsViewHandler.DENIED;
 import static com.android.packageinstaller.permission.ui.GrantPermissionsViewHandler.DENIED_DO_NOT_ASK_AGAIN;
 import static com.android.packageinstaller.permission.ui.GrantPermissionsViewHandler.GRANTED_ALWAYS;
 import static com.android.packageinstaller.permission.ui.GrantPermissionsViewHandler.GRANTED_FOREGROUND_ONLY;
+import static com.android.packageinstaller.permission.ui.GrantPermissionsViewHandler.GRANTED_ONE_TIME;
 import static com.android.packageinstaller.permission.utils.Utils.getRequestMessage;
 
 import android.app.Activity;
@@ -67,6 +69,7 @@ import com.android.packageinstaller.PermissionControllerStatsLog;
 import com.android.packageinstaller.permission.model.AppPermissionGroup;
 import com.android.packageinstaller.permission.model.AppPermissions;
 import com.android.packageinstaller.permission.model.Permission;
+import com.android.packageinstaller.permission.service.OneTimePermissionRevoker;
 import com.android.packageinstaller.permission.ui.auto.GrantPermissionsAutoViewHandler;
 import com.android.packageinstaller.permission.utils.ArrayUtils;
 import com.android.packageinstaller.permission.utils.PackageRemovalMonitor;
@@ -74,6 +77,7 @@ import com.android.packageinstaller.permission.utils.SafetyNetLogger;
 import com.android.permissioncontroller.R;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
@@ -85,12 +89,13 @@ public class GrantPermissionsActivity extends Activity
     private static final String KEY_REQUEST_ID = GrantPermissionsActivity.class.getName()
             + "_REQUEST_ID";
 
-    public static int NUM_BUTTONS = 5;
+    public static int NUM_BUTTONS = 6;
     public static int LABEL_ALLOW_BUTTON = 0;
     public static int LABEL_ALLOW_ALWAYS_BUTTON = 1;
     public static int LABEL_ALLOW_FOREGROUND_BUTTON = 2;
     public static int LABEL_DENY_BUTTON = 3;
     public static int LABEL_DENY_AND_DONT_ASK_AGAIN_BUTTON = 4;
+    public static int LABEL_ALLOW_ONE_TIME = 5;
 
     /** Unique Id of a request */
     private long mRequestId;
@@ -593,7 +598,12 @@ public class GrantPermissionsActivity extends Activity
         }
 
         int currentIndex = 0;
-        for (GroupState groupState : mRequestGrantPermissionGroups.values()) {
+        List<GroupState> groupStates = new ArrayList<>(mRequestGrantPermissionGroups.values());
+        Collections.sort(groupStates, (s1, s2) -> {
+            return -Boolean.compare(s1.mGroup.supportsOneTimeGrant(),
+                    s2.mGroup.supportsOneTimeGrant());
+        });
+        for (GroupState groupState : groupStates) {
             if (!shouldShowRequestForGroupState(groupState)) {
                 continue;
             }
@@ -647,6 +657,7 @@ public class GrantPermissionsActivity extends Activity
                 mButtonLabels[LABEL_ALLOW_BUTTON] = getString(R.string.grant_dialog_button_allow);
                 mButtonLabels[LABEL_ALLOW_ALWAYS_BUTTON] = null;
                 mButtonLabels[LABEL_ALLOW_FOREGROUND_BUTTON] = null;
+                mButtonLabels[LABEL_ALLOW_ONE_TIME] = null;
                 mButtonLabels[LABEL_DENY_BUTTON] = getString(R.string.grant_dialog_button_deny);
                 if (isForegroundPermissionUserSet || isBackgroundPermissionUserSet) {
                     mButtonLabels[LABEL_DENY_AND_DONT_ASK_AGAIN_BUTTON] =
@@ -655,6 +666,10 @@ public class GrantPermissionsActivity extends Activity
                     mButtonLabels[LABEL_DENY_AND_DONT_ASK_AGAIN_BUTTON] = null;
                 }
 
+                if (groupState.mGroup.supportsOneTimeGrant()) {
+                    mButtonLabels[LABEL_ALLOW_ONE_TIME] =
+                            getString(R.string.grant_dialog_button_allow_one_time);
+                }
                 int messageId;
                 int detailMessageId = 0;
                 if (needForegroundPermission) {
@@ -664,6 +679,8 @@ public class GrantPermissionsActivity extends Activity
                         mButtonLabels[LABEL_ALLOW_BUTTON] = null;
                         mButtonLabels[LABEL_ALLOW_FOREGROUND_BUTTON] =
                                 getString(R.string.grant_dialog_button_allow_foreground);
+                        mButtonLabels[LABEL_ALLOW_ONE_TIME] = getString(
+                                R.string.grant_dialog_button_allow_one_time);
                         if (needBackgroundPermission) {
                             mButtonLabels[LABEL_ALLOW_ALWAYS_BUTTON] =
                                     getString(R.string.grant_dialog_button_allow_always);
@@ -680,6 +697,7 @@ public class GrantPermissionsActivity extends Activity
                         detailMessageId = groupState.mGroup.getBackgroundRequestDetail();
                         mButtonLabels[LABEL_ALLOW_BUTTON] =
                                 getString(R.string.grant_dialog_button_allow_background);
+                        mButtonLabels[LABEL_ALLOW_ONE_TIME] = null;
                         mButtonLabels[LABEL_DENY_BUTTON] =
                                 getString(R.string.grant_dialog_button_deny_background);
                         mButtonLabels[LABEL_DENY_AND_DONT_ASK_AGAIN_BUTTON] =
@@ -725,7 +743,6 @@ public class GrantPermissionsActivity extends Activity
     @Override
     public void onPermissionGrantResult(String name,
             @GrantPermissionsViewHandler.Result int result) {
-        logGrantPermissionActivityButtons(name, result);
         GroupState foregroundGroupState = getForegroundGroupState(name);
         GroupState backgroundGroupState = getBackgroundGroupState(name);
 
@@ -758,37 +775,46 @@ public class GrantPermissionsActivity extends Activity
             }
         }
 
+        logGrantPermissionActivityButtons(name, result);
         switch (result) {
             case GRANTED_ALWAYS :
                 if (foregroundGroupState != null) {
-                    onPermissionGrantResultSingleState(foregroundGroupState, true, false);
+                    onPermissionGrantResultSingleState(foregroundGroupState, true, false, false);
                 }
                 if (backgroundGroupState != null) {
-                    onPermissionGrantResultSingleState(backgroundGroupState, true, false);
+                    onPermissionGrantResultSingleState(backgroundGroupState, true, false, false);
                 }
                 break;
             case GRANTED_FOREGROUND_ONLY :
                 if (foregroundGroupState != null) {
-                    onPermissionGrantResultSingleState(foregroundGroupState, true, false);
+                    onPermissionGrantResultSingleState(foregroundGroupState, true, false, false);
                 }
                 if (backgroundGroupState != null) {
-                    onPermissionGrantResultSingleState(backgroundGroupState, false, false);
+                    onPermissionGrantResultSingleState(backgroundGroupState, false, false, false);
+                }
+                break;
+            case GRANTED_ONE_TIME:
+                if (foregroundGroupState != null) {
+                    onPermissionGrantResultSingleState(foregroundGroupState, true, true, false);
+                }
+                if (backgroundGroupState != null) {
+                    onPermissionGrantResultSingleState(backgroundGroupState, false, true, false);
                 }
                 break;
             case DENIED :
                 if (foregroundGroupState != null) {
-                    onPermissionGrantResultSingleState(foregroundGroupState, false, false);
+                    onPermissionGrantResultSingleState(foregroundGroupState, false, false, false);
                 }
                 if (backgroundGroupState != null) {
-                    onPermissionGrantResultSingleState(backgroundGroupState, false, false);
+                    onPermissionGrantResultSingleState(backgroundGroupState, false, false, false);
                 }
                 break;
             case DENIED_DO_NOT_ASK_AGAIN :
                 if (foregroundGroupState != null) {
-                    onPermissionGrantResultSingleState(foregroundGroupState, false, true);
+                    onPermissionGrantResultSingleState(foregroundGroupState, false, false, true);
                 }
                 if (backgroundGroupState != null) {
-                    onPermissionGrantResultSingleState(backgroundGroupState, false, true);
+                    onPermissionGrantResultSingleState(backgroundGroupState, false, false, true);
                 }
                 break;
         }
@@ -799,16 +825,17 @@ public class GrantPermissionsActivity extends Activity
     }
 
     /**
-     * Grants or revoked the affected permissions for a single {@link groupState}.
+     * Grants or revoked the affected permissions for a single {@link GroupState}.
      *
      * @param groupState The group state with the permissions to grant/revoke
      * @param granted {@code true} if the permissions should be granted, {@code false} if they
      *        should be revoked
+     * @param isOneTime if the permission is temporary and should be revoked automatically
      * @param doNotAskAgain if the permissions should be revoked should be app be allowed to ask
      *        again for the same permissions?
      */
     private void onPermissionGrantResultSingleState(GroupState groupState, boolean granted,
-            boolean doNotAskAgain) {
+            boolean isOneTime, boolean doNotAskAgain) {
         if (groupState != null && groupState.mGroup != null
                 && groupState.mState == GroupState.STATE_UNKNOWN) {
             if (granted) {
@@ -816,8 +843,20 @@ public class GrantPermissionsActivity extends Activity
                         groupState.affectedPermissions);
                 groupState.mState = GroupState.STATE_ALLOWED;
 
-                reportRequestResult(groupState.affectedPermissions,
-                        PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED);
+                int permissionGrantRequestResult =
+                        PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED;
+
+                if (isOneTime) {
+                    OneTimePermissionRevoker permissionRevoker =
+                            OneTimePermissionRevoker.Companion.getInstance(this);
+                    String packageName = groupState.mGroup.getApp().packageName;
+                    for (String permission : groupState.affectedPermissions) {
+                        permissionRevoker.addPackagePermission(packageName, permission);
+                    }
+                    permissionGrantRequestResult =
+                            PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED_ONE_TIME;
+                }
+                reportRequestResult(groupState.affectedPermissions, permissionGrantRequestResult);
             } else {
                 groupState.mGroup.revokeRuntimePermissions(doNotAskAgain,
                         groupState.affectedPermissions);
@@ -976,6 +1015,8 @@ public class GrantPermissionsActivity extends Activity
             case DENIED_DO_NOT_ASK_AGAIN:
                 clickedButton = 1 << LABEL_DENY_AND_DONT_ASK_AGAIN_BUTTON;
                 break;
+            case GRANTED_ONE_TIME:
+                clickedButton = 1 << LABEL_ALLOW_ONE_TIME;
             default:
                 break;
         }
