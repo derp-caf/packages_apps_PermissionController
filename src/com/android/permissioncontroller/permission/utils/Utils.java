@@ -48,6 +48,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
@@ -128,6 +129,13 @@ public final class Utils {
     /** Set of groups that will be able to receive one-time grant */
     private static final ArraySet<String> ONE_TIME_PERMISSION_GROUPS;
 
+    private static final ArrayMap<String, Integer> PERM_GROUP_REQUEST_RES;
+    private static final ArrayMap<String, Integer> PERM_GROUP_REQUEST_DETAIL_RES;
+    private static final ArrayMap<String, Integer> PERM_GROUP_BACKGROUND_REQUEST_RES;
+    private static final ArrayMap<String, Integer> PERM_GROUP_BACKGROUND_REQUEST_DETAIL_RES;
+    private static final ArrayMap<String, Integer> PERM_GROUP_UPGRADE_REQUEST_RES;
+    private static final ArrayMap<String, Integer> PERM_GROUP_UPGRADE_REQUEST_DETAIL_RES;
+
     private static final Intent LAUNCHER_INTENT = new Intent(Intent.ACTION_MAIN, null)
             .addCategory(Intent.CATEGORY_LAUNCHER);
 
@@ -200,6 +208,38 @@ public final class Utils {
         ONE_TIME_PERMISSION_GROUPS.add(LOCATION);
         ONE_TIME_PERMISSION_GROUPS.add(CAMERA);
         ONE_TIME_PERMISSION_GROUPS.add(MICROPHONE);
+
+        PERM_GROUP_REQUEST_RES = new ArrayMap<>();
+        PERM_GROUP_REQUEST_RES.put(CONTACTS, R.string.permgrouprequest_contacts);
+        PERM_GROUP_REQUEST_RES.put(LOCATION, R.string.permgrouprequest_location);
+        PERM_GROUP_REQUEST_RES.put(CALENDAR, R.string.permgrouprequest_calendar);
+        PERM_GROUP_REQUEST_RES.put(SMS, R.string.permgrouprequest_sms);
+        PERM_GROUP_REQUEST_RES.put(STORAGE, R.string.permgrouprequest_storage);
+        PERM_GROUP_REQUEST_RES.put(MICROPHONE, R.string.permgrouprequest_microphone);
+        PERM_GROUP_REQUEST_RES
+                .put(ACTIVITY_RECOGNITION, R.string.permgrouprequest_activityRecognition);
+        PERM_GROUP_REQUEST_RES.put(CAMERA, R.string.permgrouprequest_camera);
+        PERM_GROUP_REQUEST_RES.put(CALL_LOG, R.string.permgrouprequest_calllog);
+        PERM_GROUP_REQUEST_RES.put(PHONE, R.string.permgrouprequest_phone);
+        PERM_GROUP_REQUEST_RES.put(SENSORS, R.string.permgrouprequest_sensors);
+
+        PERM_GROUP_REQUEST_DETAIL_RES = new ArrayMap<>();
+        PERM_GROUP_REQUEST_DETAIL_RES.put(LOCATION, R.string.permgrouprequestdetail_location);
+
+        PERM_GROUP_BACKGROUND_REQUEST_RES = new ArrayMap<>();
+        PERM_GROUP_BACKGROUND_REQUEST_RES
+                .put(LOCATION, R.string.permgroupbackgroundrequest_location);
+
+        PERM_GROUP_BACKGROUND_REQUEST_DETAIL_RES = new ArrayMap<>();
+        PERM_GROUP_BACKGROUND_REQUEST_DETAIL_RES
+                .put(LOCATION, R.string.permgroupbackgroundrequestdetail_location);
+
+        PERM_GROUP_UPGRADE_REQUEST_RES = new ArrayMap<>();
+        PERM_GROUP_UPGRADE_REQUEST_RES.put(LOCATION, R.string.permgroupupgraderequest_location);
+
+        PERM_GROUP_UPGRADE_REQUEST_DETAIL_RES = new ArrayMap<>();
+        PERM_GROUP_UPGRADE_REQUEST_DETAIL_RES
+                .put(LOCATION, R.string.permgroupupgraderequestdetail_location);
     }
 
     private Utils() {
@@ -550,6 +590,26 @@ public final class Utils {
     }
 
     /**
+     * Get the names of all permissions.
+     *
+     * @return the names of the permissions.
+     */
+    public static Set<String> getAllPermissions(@NonNull Context context) {
+        List<PackageInfo> packages = context.getPackageManager()
+                .getInstalledPackages(PackageManager.GET_PERMISSIONS);
+        ArraySet<String> result = new ArraySet<>();
+        for (int i = 0, size = packages.size(); i < size; i++) {
+            PackageInfo pkg = packages.get(i);
+            if (pkg.permissions != null) {
+                for (PermissionInfo permission : pkg.permissions) {
+                    result.add(permission.name);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
      * Should UI show this permission.
      *
      * <p>If the user cannot change the group, it should not be shown.
@@ -653,11 +713,7 @@ public final class Utils {
                             context.getString(R.string.permgrouprequest_storage_isolated),
                             appLabel), 0);
         } else if (requestRes != 0) {
-            try {
-                return Html.fromHtml(context.getPackageManager().getResourcesForApplication(
-                        group.getDeclaringPackage()).getString(requestRes, appLabel), 0);
-            } catch (PackageManager.NameNotFoundException ignored) {
-            }
+            return Html.fromHtml(context.getResources().getString(requestRes, appLabel), 0);
         }
 
         return Html.fromHtml(context.getString(R.string.permission_warning_template, appLabel,
@@ -1022,5 +1078,59 @@ public final class Utils {
      */
     public static boolean supportsOneTimeGrant(String permissionGroup) {
         return ONE_TIME_PERMISSION_GROUPS.contains(permissionGroup);
+    }
+
+    /**
+     * The resource id for the request message for a permission group
+     * @param groupName Permission group name
+     * @return The id or 0 if the permission group doesn't exist or have a message
+     */
+    public static int getRequest(String groupName) {
+        return PERM_GROUP_REQUEST_RES.getOrDefault(groupName, 0);
+    }
+
+    /**
+     * The resource id for the request detail message for a permission group
+     * @param groupName Permission group name
+     * @return The id or 0 if the permission group doesn't exist or have a message
+     */
+    public static int getRequestDetail(String groupName) {
+        return PERM_GROUP_REQUEST_DETAIL_RES.getOrDefault(groupName, 0);
+    }
+
+    /**
+     * The resource id for the background request message for a permission group
+     * @param groupName Permission group name
+     * @return The id or 0 if the permission group doesn't exist or have a message
+     */
+    public static int getBackgroundRequest(String groupName) {
+        return PERM_GROUP_BACKGROUND_REQUEST_RES.getOrDefault(groupName, 0);
+    }
+
+    /**
+     * The resource id for the background request detail message for a permission group
+     * @param groupName Permission group name
+     * @return The id or 0 if the permission group doesn't exist or have a message
+     */
+    public static int getBackgroundRequestDetail(String groupName) {
+        return PERM_GROUP_BACKGROUND_REQUEST_DETAIL_RES.getOrDefault(groupName, 0);
+    }
+
+    /**
+     * The resource id for the upgrade request message for a permission group
+     * @param groupName Permission group name
+     * @return The id or 0 if the permission group doesn't exist or have a message
+     */
+    public static int getUpgradeRequest(String groupName) {
+        return PERM_GROUP_UPGRADE_REQUEST_RES.getOrDefault(groupName, 0);
+    }
+
+    /**
+     * The resource id for the upgrade request detail message for a permission group
+     * @param groupName Permission group name
+     * @return The id or 0 if the permission group doesn't exist or have a message
+     */
+    public static int getUpgradeRequestDetail(String groupName) {
+        return PERM_GROUP_UPGRADE_REQUEST_DETAIL_RES.getOrDefault(groupName, 0);
     }
 }
