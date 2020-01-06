@@ -39,7 +39,7 @@
     <uses-permission android:name="android.permission.OPEN_ACCESSIBILITY_DETAILS_SETTINGS" />
     <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
     <uses-permission android:name="android.permission.SUBSTITUTE_NOTIFICATION_APP_NAME" />
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <uses-permission android:name="android.permission.MANAGE_ONE_TIME_PERMISSION_SESSIONS" />
 
     <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="29" />
 
@@ -99,6 +99,7 @@
                   android:permission="android.permission.GRANT_RUNTIME_PERMISSIONS">
             <intent-filter android:priority="1">
                 <action android:name="android.intent.action.MANAGE_APP_PERMISSIONS" />
+                <action android:name="android.intent.action.MANAGE_APP_PERMISSION" />
                 <action android:name="android.intent.action.MANAGE_PERMISSION_APPS" />
                 <action android:name="android.intent.action.MANAGE_PERMISSIONS" />
                 <action android:name="android.intent.action.REVIEW_PERMISSION_USAGE" />
@@ -128,10 +129,6 @@
                   android:configChanges="orientation|keyboardHidden|screenSize"
                   android:theme="@style/Settings"
                   android:permission="android.permission.GRANT_RUNTIME_PERMISSIONS">
-            <intent-filter android:priority="1">
-                <action android:name="android.intent.action.MANAGE_APP_PERMISSION" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
         </activity>
 
         <activity android:name="com.android.permissioncontroller.permission.ui.ReviewPermissionsActivity"
@@ -288,12 +285,6 @@
                 <action android:name="android.intent.action.PACKAGE_DATA_CLEARED" />
                 <action android:name="android.intent.action.PACKAGE_FULLY_REMOVED"/>
                 <data android:scheme="package" />
-            </intent-filter>
-        </receiver>
-
-        <receiver android:name="com.android.permissioncontroller.permission.service.OneTimePermissionRevoker$RevokePackageReceiver">
-            <intent-filter>
-                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 
