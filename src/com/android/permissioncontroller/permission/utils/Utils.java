@@ -48,7 +48,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
@@ -306,6 +305,18 @@ public final class Utils {
             @NonNull String name) {
         return Preconditions.checkNotNull(intent.getStringExtra(name),
                 "Could not get string extra for " + name);
+    }
+
+    /**
+     * Returns true if a permission is dangerous, installed, and not removed
+     * @param permissionInfo The permission we wish to check
+     * @return If all of the conditions are met
+     */
+    public static boolean isPermissionDangerousInstalledNotRemoved(PermissionInfo permissionInfo) {
+        return permissionInfo != null
+                  && permissionInfo.getProtection() == PermissionInfo.PROTECTION_DANGEROUS
+                  && (permissionInfo.flags & PermissionInfo.FLAG_INSTALLED) != 0
+                  && (permissionInfo.flags & PermissionInfo.FLAG_REMOVED) == 0;
     }
 
     /**
@@ -587,26 +598,6 @@ public final class Utils {
      */
     public static Set<String> getPlatformPermissions() {
         return PLATFORM_PERMISSIONS.keySet();
-    }
-
-    /**
-     * Get the names of all permissions.
-     *
-     * @return the names of the permissions.
-     */
-    public static Set<String> getAllPermissions(@NonNull Context context) {
-        List<PackageInfo> packages = context.getPackageManager()
-                .getInstalledPackages(PackageManager.GET_PERMISSIONS);
-        ArraySet<String> result = new ArraySet<>();
-        for (int i = 0, size = packages.size(); i < size; i++) {
-            PackageInfo pkg = packages.get(i);
-            if (pkg.permissions != null) {
-                for (PermissionInfo permission : pkg.permissions) {
-                    result.add(permission.name);
-                }
-            }
-        }
-        return result;
     }
 
     /**
