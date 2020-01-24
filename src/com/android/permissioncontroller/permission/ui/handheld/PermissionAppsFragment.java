@@ -27,6 +27,7 @@ import static com.android.permissioncontroller.permission.ui.Category.ALLOWED_FO
 import static com.android.permissioncontroller.permission.ui.Category.ASK;
 import static com.android.permissioncontroller.permission.ui.Category.DENIED;
 
+import android.Manifest;
 import android.app.ActionBar;
 import android.content.Context;
 import android.content.Intent;
@@ -73,6 +74,8 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader {
     private static final String KEY_FOOTER = "_footer";
     private static final String KEY_EMPTY = "_empty";
     private static final String LOG_TAG = "PermissionAppsFragment";
+    private static final String STORAGE_ALLOWED_FULL = "allowed_storage_full";
+    private static final String STORAGE_ALLOWED_SCOPED = "allowed_storage_scoped";
     private static final int SHOW_LOAD_DELAY_MS = 200;
 
     private static final String SHOW_SYSTEM_KEY = PermissionAppsFragment.class.getName()
@@ -94,7 +97,7 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader {
      * Create a bundle with the arguments needed by this fragment
      *
      * @param permGroupName The name of the permission group
-     * @param sessionId The current session ID
+     * @param sessionId     The current session ID
      * @return A bundle with all of the args placed
      */
     public static Bundle createArgs(String permGroupName, long sessionId) {
@@ -180,6 +183,7 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader {
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
             case android.R.id.home:
+                mViewModel.updateShowSystem(false);
                 getActivity().onBackPressed();
                 return true;
             case MENU_SHOW_SYSTEM:
@@ -223,8 +227,13 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader {
     }
 
     private void onPackagesLoaded(Map<Category, List<Pair<String, UserHandle>>> categories) {
+        boolean isStorage = mPermGroupName.equals(Manifest.permission_group.STORAGE);
         if (getPreferenceScreen() == null) {
-            addPreferencesFromResource(R.xml.allowed_denied);
+            if (isStorage) {
+                addPreferencesFromResource(R.xml.allowed_denied_storage);
+            } else {
+                addPreferencesFromResource(R.xml.allowed_denied);
+            }
             // Hide allowed foreground label by default, to avoid briefly showing it before updating
             findPreference(ALLOWED_FOREGROUND.getCategoryName()).setVisible(false);
         }
@@ -236,12 +245,13 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader {
 
         Map<String, Preference> existingPrefs = new ArrayMap<>();
 
-        for (Category grantCategory : categories.keySet()) {
-            PreferenceCategory category = findPreference(grantCategory.getCategoryName());
+        for (int i = 0; i < getPreferenceScreen().getPreferenceCount(); i++) {
+            PreferenceCategory category = (PreferenceCategory)
+                    getPreferenceScreen().getPreference(i);
             category.setOrderingAsAdded(true);
             int numPreferences = category.getPreferenceCount();
-            for (int i = 0; i < numPreferences; i++) {
-                Preference preference = category.getPreference(i);
+            for (int j = 0; j < numPreferences; j++) {
+                Preference preference = category.getPreference(j);
                 existingPrefs.put(preference.getKey(), preference);
             }
             category.removeAll();
@@ -251,17 +261,22 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader {
         long sessionId = getArguments().getLong(EXTRA_SESSION_ID, INVALID_SESSION_ID);
 
         Boolean showAlways = mViewModel.getShowAllowAlwaysStringLiveData().getValue();
-        if (showAlways != null && showAlways) {
-            findPreference(ALLOWED.getCategoryName()).setTitle(R.string.allowed_always_header);
-        } else {
-            findPreference(ALLOWED.getCategoryName()).setTitle(R.string.allowed_header);
+        if (!isStorage) {
+            if (showAlways != null && showAlways) {
+                findPreference(ALLOWED.getCategoryName()).setTitle(R.string.allowed_always_header);
+            } else {
+                findPreference(ALLOWED.getCategoryName()).setTitle(R.string.allowed_header);
+            }
         }
 
         for (Category grantCategory : categories.keySet()) {
             List<Pair<String, UserHandle>> packages = categories.get(grantCategory);
             PreferenceCategory category = findPreference(grantCategory.getCategoryName());
 
-            if (packages.size() == 0) {
+
+            // If this category is empty, and this isn't the "allowed" category of the storage
+            // permission, set up the empty preference.
+            if (packages.size() == 0 && (!isStorage || !grantCategory.equals(ALLOWED))) {
                 Preference empty = new Preference(context);
                 empty.setSelectable(false);
                 empty.setKey(category.getKey() + KEY_EMPTY);
@@ -287,6 +302,12 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader {
                 UserHandle user = packageUserLabel.getSecond();
 
                 String key = user + packageName;
+
+                if (isStorage && grantCategory.equals(ALLOWED)) {
+                    category = mViewModel.shouldUseFullStorageString(packageName, user)
+                            ? findPreference(STORAGE_ALLOWED_FULL)
+                            : findPreference(STORAGE_ALLOWED_SCOPED);
+                }
 
                 Preference existingPref = existingPrefs.get(key);
                 if (existingPref != null) {
@@ -315,32 +336,43 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader {
                 }
             }
 
-            KotlinUtils.INSTANCE.sortPreferenceGroup(category, false,
-                    (Preference lhs, Preference rhs) -> {
-                        int result = mCollator.compare(lhs.getTitle().toString(),
-                                rhs.getTitle().toString());
-                        if (result == 0) {
-                            result = lhs.getKey().compareTo(rhs.getKey());
-                        }
-                        return result;
-                    });
+            if (isStorage && grantCategory.equals(ALLOWED)) {
+                PreferenceCategory full = findPreference(STORAGE_ALLOWED_FULL);
+                PreferenceCategory scoped = findPreference(STORAGE_ALLOWED_SCOPED);
+                if (full.getPreferenceCount() == 0) {
+                    Preference empty = new Preference(context);
+                    empty.setSelectable(false);
+                    empty.setKey(STORAGE_ALLOWED_FULL + KEY_EMPTY);
+                    empty.setTitle(getString(R.string.no_apps_allowed_full));
+                    full.addPreference(empty);
+                }
+
+                if (scoped.getPreferenceCount() == 0) {
+                    Preference empty = new Preference(context);
+                    empty.setSelectable(false);
+                    empty.setKey(STORAGE_ALLOWED_FULL + KEY_EMPTY);
+                    empty.setTitle(getString(R.string.no_apps_allowed_scoped));
+                    scoped.addPreference(empty);
+                }
+                KotlinUtils.INSTANCE.sortPreferenceGroup(full, false, this::comparePreference);
+                KotlinUtils.INSTANCE.sortPreferenceGroup(scoped, false, this::comparePreference);
+            } else {
+                KotlinUtils.INSTANCE.sortPreferenceGroup(category, false, this::comparePreference);
+            }
 
             mViewModel.setCreationLogged(true);
         }
 
-        if (Utils.isPermissionsHubEnabled() && !Utils.shouldShowPermissionUsage(mPermGroupName)
-                && findPreference(KEY_FOOTER) == null) {
-            PreferenceCategory footer = new PreferenceCategory(context);
-            footer.setKey(KEY_FOOTER);
-            getPreferenceScreen().addPreference(footer);
-            Preference footerText = new Preference(context);
-            footerText.setSummary(context.getString(R.string.app_permission_footer_not_available));
-            footerText.setIcon(R.drawable.ic_info_outline);
-            footerText.setSelectable(false);
-            footer.addPreference(footerText);
-        }
-
         setLoading(false /* loading */, true /* animate */);
+    }
+
+    private int comparePreference(Preference lhs, Preference rhs) {
+        int result = mCollator.compare(lhs.getTitle().toString(),
+                rhs.getTitle().toString());
+        if (result == 0) {
+            result = lhs.getKey().compareTo(rhs.getKey());
+        }
+        return result;
     }
 
     private void logPermissionAppsFragmentCreated(String packageName, UserHandle user, long viewId,
