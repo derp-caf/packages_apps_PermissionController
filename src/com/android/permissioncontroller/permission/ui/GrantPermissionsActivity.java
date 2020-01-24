@@ -27,8 +27,11 @@ import static com.android.permissioncontroller.PermissionControllerStatsLog.PERM
 import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__IGNORED_RESTRICTED_PERMISSION;
 import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__IGNORED_USER_FIXED;
 import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED;
+import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED_IN_SETTINGS;
 import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED_WITH_PREJUDICE;
+import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED_WITH_PREJUDICE_IN_SETTINGS;
 import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED;
+import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED_IN_SETTINGS;
 import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED_ONE_TIME;
 import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_IGNORED;
 import static com.android.permissioncontroller.permission.ui.GrantPermissionsViewHandler.CANCELED;
@@ -68,6 +71,7 @@ import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.util.Consumer;
 
 import com.android.permissioncontroller.DeviceUtils;
 import com.android.permissioncontroller.PermissionControllerStatsLog;
@@ -75,7 +79,6 @@ import com.android.permissioncontroller.R;
 import com.android.permissioncontroller.permission.model.AppPermissionGroup;
 import com.android.permissioncontroller.permission.model.AppPermissions;
 import com.android.permissioncontroller.permission.model.Permission;
-import com.android.permissioncontroller.permission.service.OneTimePermissionRevoker;
 import com.android.permissioncontroller.permission.ui.auto.GrantPermissionsAutoViewHandler;
 import com.android.permissioncontroller.permission.utils.ArrayUtils;
 import com.android.permissioncontroller.permission.utils.PackageRemovalMonitor;
@@ -116,6 +119,7 @@ public class GrantPermissionsActivity extends Activity
     private ArrayMap<Pair<String, Boolean>, GroupState> mRequestGrantPermissionGroups =
             new ArrayMap<>();
     private ArraySet<String> mPermissionGroupsToSkip = new ArraySet<>();
+    private Consumer<Intent> mActivityResultCallback;
 
     private GrantPermissionsViewHandler mViewHandler;
     private AppPermissions mAppPermissions;
@@ -361,6 +365,14 @@ public class GrantPermissionsActivity extends Activity
                             PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__IGNORED);
 
                     continue;
+                }
+
+                if (mAppPermissions.getPackageInfo().applicationInfo.targetSdkVersion
+                        >= Build.VERSION_CODES.R && mRequestedPermissions.length > 1
+                        && (group.isBackgroundGroup() || group.hasPermissionWithBackgroundMode())) {
+                    throw new SecurityException("Apps targeting " + Build.VERSION_CODES.R + " must"
+                            + " have foreground permission before requesting background and must"
+                            + " request background on its own.");
                 }
 
                 addRequestedPermissions(group, affectedPermissions.get(i), icicle == null);
@@ -678,28 +690,63 @@ public class GrantPermissionsActivity extends Activity
                 int messageId;
                 int detailMessageId = 0;
 
-                // TODO evanseverson: R ui not implemented yet, just show them Q- for now
-                // STOPSHIP
                 if (mAppPermissions.getPackageInfo().applicationInfo.targetSdkVersion
-                        >= Build.VERSION_CODES.R && false) {
-                    if (needForegroundPermission && needBackgroundPermission) {
-                        Log.e(LOG_TAG, "Apps targeting sdk " + Build.VERSION_CODES.R
-                                + " or later must get foreground permission"
-                                + " before requesting background");
-                        return false;
-                    } else if (needForegroundPermission) {
-                        // Show (onetime), foreground, deny
-                    } else if (needBackgroundPermission) {
-                        // Go to AppPermission page if rate limit hasn't been reached
+                        >= Build.VERSION_CODES.R) {
+                    if (groupState.mGroup.hasPermissionWithBackgroundMode()
+                            || groupState.mGroup.isBackgroundGroup()) {
+                        if (needForegroundPermission && needBackgroundPermission) {
+                            // Shouldn't be reached as background must be requested as a singleton
+                            return false;
+                        } else if (needForegroundPermission) {
+                            // Case: sdk >= R, BG/FG permission requesting FG only
+                            messageId = groupState.mGroup.getRequest();
+                            mButtonVisibilities[VISIBILITY_ALLOW_BUTTON] = false;
+                            mButtonVisibilities[VISIBILITY_ALLOW_FOREGROUND_BUTTON] = true;
+                            mButtonVisibilities[VISIBILITY_DENY_BUTTON] =
+                                    !isForegroundPermissionUserSet;
+                            mButtonVisibilities[VISIBILITY_DENY_AND_DONT_ASK_AGAIN_BUTTON] =
+                                    isForegroundPermissionUserSet;
+                        } else if (needBackgroundPermission) {
+                            // Case: sdk >= R, BG/FG permission requesting BG only
+                            if (mActivityResultCallback == null) {
+                                startAppPermissionFragment(groupState);
+                                mActivityResultCallback = data -> {
+                                    if (data == null || data.getStringExtra(AppPermissionActivity
+                                            .EXTRA_RESULT_PERMISSION_INTERACTED) == null) {
+                                        // User didn't interact, count against rate limit
+                                        if (groupState.mGroup.isUserSet()) {
+                                            groupState.mGroup.setUserFixed(true);
+                                        } else {
+                                            groupState.mGroup.setUserSet(true);
+                                        }
+                                    }
+                                    mPermissionGroupsToSkip.add(groupState.mGroup.getName());
+                                };
+                            }
+                            return true;
+                        } else {
+                            // Not reached as the permissions should be auto-granted
+                            return false;
+                        }
                     } else {
-                        // Not reached as the permissions should be auto-granted
-                        return false;
+                        // Case: sdk >= R, Requesting normal permission
+                        messageId = groupState.mGroup.getRequest();
+                        mButtonVisibilities[VISIBILITY_DENY_BUTTON] =
+                                !isForegroundPermissionUserSet;
+                        mButtonVisibilities[VISIBILITY_DENY_AND_DONT_ASK_AGAIN_BUTTON] =
+                                isForegroundPermissionUserSet;
+                        if (groupState.mGroup.getName().equals(Manifest.permission_group.CAMERA)
+                                || groupState.mGroup.getName().equals(
+                                Manifest.permission_group.MICROPHONE)) {
+                            mButtonVisibilities[VISIBILITY_ALLOW_BUTTON] = false;
+                            mButtonVisibilities[VISIBILITY_ALLOW_FOREGROUND_BUTTON] = true;
+                        }
                     }
                 } else {
                     if (groupState.mGroup.hasPermissionWithBackgroundMode()
-                            || groupState.mGroup.isBackgroundGroup()) { // is tristate
+                            || groupState.mGroup.isBackgroundGroup()) {
                         if (needForegroundPermission && needBackgroundPermission) {
-                            // Requests both background and foreground
+                            // Case: sdk < R, BG/FG permission requesting both
                             messageId = groupState.mGroup.getBackgroundRequest();
                             detailMessageId = groupState.mGroup.getBackgroundRequestDetail();
                             mButtonVisibilities[VISIBILITY_ALLOW_BUTTON] = false;
@@ -709,7 +756,7 @@ public class GrantPermissionsActivity extends Activity
                             mButtonVisibilities[VISIBILITY_DENY_AND_DONT_ASK_AGAIN_BUTTON] =
                                     isForegroundPermissionUserSet;
                         } else if (needForegroundPermission) {
-                            // Only requests foreground
+                            // Case: sdk < R, BG/FG permission requesting FG only
                             messageId = groupState.mGroup.getRequest();
                             mButtonVisibilities[VISIBILITY_ALLOW_BUTTON] = false;
                             mButtonVisibilities[VISIBILITY_ALLOW_FOREGROUND_BUTTON] = true;
@@ -718,7 +765,7 @@ public class GrantPermissionsActivity extends Activity
                             mButtonVisibilities[VISIBILITY_DENY_AND_DONT_ASK_AGAIN_BUTTON] =
                                     isForegroundPermissionUserSet;
                         } else if (needBackgroundPermission) {
-                            // Upgrade from foreground to background
+                            // Case: sdk < R, BG/FG permission requesting BG only
                             messageId = groupState.mGroup.getUpgradeRequest();
                             detailMessageId = groupState.mGroup.getUpgradeRequestDetail();
                             mButtonVisibilities[VISIBILITY_ALLOW_BUTTON] = false;
@@ -733,6 +780,7 @@ public class GrantPermissionsActivity extends Activity
                             return false;
                         }
                     } else {
+                        // Case: sdk < R, Requesting normal permission
                         messageId = groupState.mGroup.getRequest();
                         mButtonVisibilities[VISIBILITY_DENY_BUTTON] =
                                 !isForegroundPermissionUserSet;
@@ -793,30 +841,87 @@ public class GrantPermissionsActivity extends Activity
         return new ClickableSpan() {
             @Override
             public void onClick(View widget) {
-                Intent intent = new Intent(Intent.ACTION_MANAGE_APP_PERMISSION);
-                intent.putExtra(Intent.EXTRA_PACKAGE_NAME,
-                        mAppPermissions.getPackageInfo().packageName);
-                intent.putExtra(Intent.EXTRA_PERMISSION_GROUP_NAME,
-                        groupState.mGroup.getName());
-                intent.putExtra(Intent.EXTRA_USER, groupState.mGroup.getUser());
-                intent.putExtra(AppPermissionActivity.EXTRA_CALLER_NAME,
-                        GrantPermissionsActivity.class.getName());
-                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                startActivityForResult(intent, APP_PERMISSION_REQUEST_CODE);
+                startAppPermissionFragment(groupState);
+                mActivityResultCallback = data -> {
+                    if (data != null) {
+                        String groupName = data.getStringExtra(
+                                AppPermissionActivity.EXTRA_RESULT_PERMISSION_INTERACTED);
+                        if (groupName != null) {
+                            mPermissionGroupsToSkip.add(groupName);
+                            int result = data.getIntExtra(
+                                            AppPermissionActivity.EXTRA_RESULT_PERMISSION_RESULT,
+                                    -1);
+                            logSettingsInteraction(groupName, result);
+                        }
+                    }
+                };
             }
         };
     }
 
+    private void logSettingsInteraction(String groupName, int result) {
+        GroupState foregroundGroupState = getForegroundGroupState(groupName);
+        GroupState backgroundGroupState = getBackgroundGroupState(groupName);
+        switch (result) {
+            case GRANTED_ALWAYS:
+                if (foregroundGroupState != null) {
+                    reportRequestResult(foregroundGroupState.affectedPermissions,
+                            PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED_IN_SETTINGS);
+                }
+                if (backgroundGroupState != null) {
+                    reportRequestResult(backgroundGroupState.affectedPermissions,
+                            PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED_IN_SETTINGS);
+                }
+                break;
+            case GRANTED_FOREGROUND_ONLY:
+                if (foregroundGroupState != null) {
+                    reportRequestResult(foregroundGroupState.affectedPermissions,
+                            PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED_IN_SETTINGS);
+                }
+                if (backgroundGroupState != null) {
+                    reportRequestResult(backgroundGroupState.affectedPermissions,
+                            PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED_IN_SETTINGS);
+                }
+                break;
+            case DENIED:
+                if (foregroundGroupState != null) {
+                    reportRequestResult(foregroundGroupState.affectedPermissions,
+                            PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED_IN_SETTINGS);
+                }
+                if (backgroundGroupState != null) {
+                    reportRequestResult(backgroundGroupState.affectedPermissions,
+                            PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED_IN_SETTINGS);
+                }
+                break;
+            case DENIED_DO_NOT_ASK_AGAIN:
+                if (foregroundGroupState != null) {
+                    reportRequestResult(foregroundGroupState.affectedPermissions,
+                            PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED_WITH_PREJUDICE_IN_SETTINGS);
+                }
+                if (backgroundGroupState != null) {
+                    reportRequestResult(backgroundGroupState.affectedPermissions,
+                            PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_DENIED_WITH_PREJUDICE_IN_SETTINGS);
+                }
+                break;
+        }
+    }
+
+    private void startAppPermissionFragment(GroupState groupState) {
+        Intent intent = new Intent(Intent.ACTION_MANAGE_APP_PERMISSION)
+                .putExtra(Intent.EXTRA_PACKAGE_NAME, mAppPermissions.getPackageInfo().packageName)
+                .putExtra(Intent.EXTRA_PERMISSION_GROUP_NAME, groupState.mGroup.getName())
+                .putExtra(Intent.EXTRA_USER, groupState.mGroup.getUser())
+                .putExtra(AppPermissionActivity.EXTRA_CALLER_NAME,
+                        GrantPermissionsActivity.class.getName())
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivityForResult(intent, APP_PERMISSION_REQUEST_CODE);
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == APP_PERMISSION_REQUEST_CODE) {
-            if (data != null) {
-                String groupName = data.getStringExtra(
-                        AppPermissionActivity.EXTRA_RESULT_PERMISSION_INTERACTED);
-                if (groupName != null) {
-                    mPermissionGroupsToSkip.add(groupName);
-                }
-            }
+        if (requestCode == APP_PERMISSION_REQUEST_CODE && mActivityResultCallback != null) {
+            mActivityResultCallback.accept(data);
+            mActivityResultCallback = null;
         }
     }
 
@@ -930,23 +1035,19 @@ public class GrantPermissionsActivity extends Activity
         if (groupState != null && groupState.mGroup != null
                 && groupState.mState == GroupState.STATE_UNKNOWN) {
             if (granted) {
-                groupState.mGroup.grantRuntimePermissions(doNotAskAgain,
-                        groupState.affectedPermissions);
-                groupState.mState = GroupState.STATE_ALLOWED;
-
                 int permissionGrantRequestResult =
                         PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED;
 
                 if (isOneTime) {
-                    OneTimePermissionRevoker permissionRevoker =
-                            OneTimePermissionRevoker.Companion.getInstance(this);
-                    String packageName = groupState.mGroup.getApp().packageName;
-                    for (String permission : groupState.affectedPermissions) {
-                        permissionRevoker.addPackagePermission(packageName, permission);
-                    }
+                    groupState.mGroup.setOneTime(true);
                     permissionGrantRequestResult =
                             PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__USER_GRANTED_ONE_TIME;
                 }
+
+                groupState.mGroup.grantRuntimePermissions(doNotAskAgain,
+                        groupState.affectedPermissions);
+                groupState.mState = GroupState.STATE_ALLOWED;
+
                 reportRequestResult(groupState.affectedPermissions, permissionGrantRequestResult);
             } else {
                 groupState.mGroup.revokeRuntimePermissions(doNotAskAgain,
@@ -1090,7 +1191,18 @@ public class GrantPermissionsActivity extends Activity
                 clickedButton = 1 << VISIBILITY_ALLOW_FOREGROUND_BUTTON;
                 break;
             case DENIED:
-                clickedButton = 1 << VISIBILITY_DENY_BUTTON;
+                if (mButtonVisibilities[VISIBILITY_NO_UPGRADE_BUTTON]) {
+                    clickedButton = 1 << VISIBILITY_NO_UPGRADE_BUTTON;
+                } else if (mButtonVisibilities[VISIBILITY_DENY_BUTTON]) {
+                    clickedButton = 1 << VISIBILITY_DENY_BUTTON;
+                }
+                break;
+            case DENIED_DO_NOT_ASK_AGAIN:
+                if (mButtonVisibilities[VISIBILITY_NO_UPGRADE_AND_DONT_ASK_AGAIN_BUTTON]) {
+                    clickedButton = 1 << VISIBILITY_NO_UPGRADE_AND_DONT_ASK_AGAIN_BUTTON;
+                } else if (mButtonVisibilities[VISIBILITY_DENY_AND_DONT_ASK_AGAIN_BUTTON]) {
+                    clickedButton = 1 << VISIBILITY_DENY_AND_DONT_ASK_AGAIN_BUTTON;
+                }
                 break;
             case GRANTED_ONE_TIME:
                 clickedButton = 1 << VISIBILITY_ALLOW_ONE_TIME_BUTTON;

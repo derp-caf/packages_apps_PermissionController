@@ -26,6 +26,7 @@ import static android.permission.PermissionControllerManager.REASON_INSTALLER_PO
 import static android.permission.PermissionControllerManager.REASON_MALWARE;
 import static android.util.Xml.newSerializer;
 
+import static com.android.permissioncontroller.PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__AUTO_ONE_TIME_PERMISSION_REVOKED;
 import static com.android.permissioncontroller.permission.utils.Utils.shouldShowPermission;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -42,18 +43,23 @@ import android.permission.PermissionManager;
 import android.permission.RuntimePermissionPresentationInfo;
 import android.permission.RuntimePermissionUsageInfo;
 import android.util.ArrayMap;
+import android.util.ArraySet;
 import android.util.Log;
 import android.util.Xml;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.android.permissioncontroller.PermissionControllerStatsLog;
 import com.android.permissioncontroller.permission.model.AppPermissionGroup;
 import com.android.permissioncontroller.permission.model.AppPermissionUsage;
 import com.android.permissioncontroller.permission.model.AppPermissionUsage.GroupUsage;
 import com.android.permissioncontroller.permission.model.AppPermissions;
 import com.android.permissioncontroller.permission.model.Permission;
 import com.android.permissioncontroller.permission.model.PermissionUsages;
+import com.android.permissioncontroller.permission.model.livedatatypes.AppPermGroupUiInfo;
+import com.android.permissioncontroller.permission.model.livedatatypes.AppPermGroupUiInfo.PermGrantState;
+import com.android.permissioncontroller.permission.utils.KotlinUtils;
 import com.android.permissioncontroller.permission.utils.Utils;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -66,8 +72,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
+
+import kotlin.Pair;
 
 /**
  * Calls from the system into the permission controller.
@@ -379,13 +389,29 @@ public final class PermissionControllerServiceImpl extends PermissionControllerL
     @Override
     public void onGetAppPermissions(@NonNull String packageName,
             @NonNull Consumer<List<RuntimePermissionPresentationInfo>> callback) {
-        AsyncTask.THREAD_POOL_EXECUTOR.execute(() -> callback.accept(
-                onGetAppPermissions(this, packageName)));
+        mServiceModel.onGetAppPermissions(packageName, (groupUiInfos) -> {
+            List<RuntimePermissionPresentationInfo> permissions = new ArrayList<>();
+
+            for (Pair<String, AppPermGroupUiInfo> groupNameAndUiInfo : groupUiInfos) {
+                String groupName = groupNameAndUiInfo.getFirst();
+                AppPermGroupUiInfo uiInfo = groupNameAndUiInfo.getSecond();
+                boolean isPlatform = Utils.getPlatformPermissionGroups().contains(groupName);
+                CharSequence label = KotlinUtils.INSTANCE.getPermGroupLabel(this, groupName);
+
+                RuntimePermissionPresentationInfo permission =
+                        new RuntimePermissionPresentationInfo(label,
+                                uiInfo.getPermGrantState() != PermGrantState.PERMS_DENIED
+                                        && uiInfo.getPermGrantState() != PermGrantState.PERMS_ASK,
+                                isPlatform);
+                permissions.add(permission);
+            }
+            callback.accept(permissions);
+        });
     }
 
     /**
      * Implementation of {@link PermissionControllerService#onGetAppPermissions(String)}}.
-     * Called by this class and the legacy implementation.
+     * Called by the legacy implementation.
      */
     static @NonNull List<RuntimePermissionPresentationInfo> onGetAppPermissions(
             @NonNull Context context, @NonNull String packageName) {
@@ -642,7 +668,64 @@ public final class PermissionControllerServiceImpl extends PermissionControllerL
     }
 
     @Override
-    public void onUpdateUserSensitive() {
+    public void onUpdateUserSensitivePermissionFlags() {
         Utils.updateUserSensitive(getApplication(), Process.myUserHandle());
+    }
+
+    @Override
+    public void onOneTimePermissionSessionTimeout(@NonNull String packageName) {
+        PackageManager pm = getPackageManager();
+        PackageInfo packageInfo;
+        int uid;
+        try {
+            packageInfo = pm.getPackageInfo(packageName, GET_PERMISSIONS);
+            uid = pm.getPackageUid(packageName, 0);
+        } catch (PackageManager.NameNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+
+        String[] permissions = packageInfo.requestedPermissions;
+        if (permissions == null) {
+            return;
+        }
+
+        Set<AppPermissionGroup> groups = new ArraySet<>();
+        for (String permission : permissions) {
+            AppPermissionGroup group = AppPermissionGroup.create(this, packageInfo, permission,
+                    true);
+            if (group != null && group.isOneTime()) {
+                groups.add(group);
+            }
+        }
+        for (AppPermissionGroup group : groups) {
+            if (group.areRuntimePermissionsGranted()) {
+                logOneTimeSessionRevoke(packageName, uid, group);
+                group.revokeRuntimePermissions(false);
+            }
+            group.setOneTime(false);
+            group.persistChanges(false);
+        }
+    }
+
+    private void logOneTimeSessionRevoke(@NonNull String packageName, int uid,
+            AppPermissionGroup group) {
+        long requestId = new Random().nextLong();
+
+        // used to keep lines below 100 chars
+        int r = PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__AUTO_ONE_TIME_PERMISSION_REVOKED;
+
+        for (Permission permission : group.getPermissions()) {
+            if (permission.isGranted()) {
+                String permName = permission.getName();
+                Log.v(LOG_TAG,
+                        "Permission grant result requestId=" + requestId + " callingUid="
+                                + uid + " callingPackage=" + packageName + " permission="
+                                + permName + " isImplicit=false" + " result=" + r);
+
+                PermissionControllerStatsLog.write(
+                        PermissionControllerStatsLog.PERMISSION_GRANT_REQUEST_RESULT_REPORTED,
+                        requestId, uid, packageName, permName, false, r);
+            }
+        }
     }
 }
