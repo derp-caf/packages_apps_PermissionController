@@ -21,6 +21,7 @@ import static android.view.WindowManager.LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTE
 import static com.android.permissioncontroller.Constants.EXTRA_SESSION_ID;
 import static com.android.permissioncontroller.Constants.INVALID_SESSION_ID;
 
+import android.app.ActionBar;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.PermissionInfo;
@@ -46,7 +47,6 @@ import com.android.permissioncontroller.permission.ui.auto.AutoPermissionAppsFra
 import com.android.permissioncontroller.permission.ui.handheld.AppPermissionFragment;
 import com.android.permissioncontroller.permission.ui.handheld.AppPermissionGroupsFragment;
 import com.android.permissioncontroller.permission.ui.handheld.PermissionAppsFragment;
-import com.android.permissioncontroller.permission.ui.handheld.PermissionUsageFragment;
 import com.android.permissioncontroller.permission.ui.wear.AppPermissionsFragmentWear;
 import com.android.permissioncontroller.permission.utils.Utils;
 
@@ -67,8 +67,10 @@ public final class ManagePermissionsActivity extends FragmentActivity {
         }
         super.onCreate(savedInstanceState);
 
-        // If there is a previous instance, re-use its Fragment instead of making a new one.
-        if (savedInstanceState != null) {
+        // If this is not a phone (which uses the Navigation component), and there is a previous
+        // instance, re-use its Fragment instead of making a new one.
+        if ((DeviceUtils.isTelevision(this) || DeviceUtils.isAuto(this)
+                || DeviceUtils.isWear(this)) && savedInstanceState != null) {
             return;
         }
 
@@ -102,36 +104,6 @@ public final class ManagePermissionsActivity extends FragmentActivity {
 
                 }
                 break;
-
-            case Intent.ACTION_REVIEW_PERMISSION_USAGE: {
-                if (!Utils.isPermissionsHubEnabled()) {
-                    finish();
-                    return;
-                }
-
-                permissionName = getIntent().getStringExtra(Intent.EXTRA_PERMISSION_NAME);
-                String groupName = getIntent().getStringExtra(Intent.EXTRA_PERMISSION_GROUP_NAME);
-                long numMillis = getIntent().getLongExtra(Intent.EXTRA_DURATION_MILLIS,
-                        Long.MAX_VALUE);
-
-                if (permissionName != null) {
-                    String permGroupName = Utils.getGroupOfPlatformPermission(permissionName);
-                    if (permGroupName == null) {
-                        Log.w(LOG_TAG, "Invalid platform permission: " + permissionName);
-                    }
-                    if (groupName != null && !groupName.equals(permGroupName)) {
-                        Log.i(LOG_TAG,
-                                "Inconsistent EXTRA_PERMISSION_NAME / EXTRA_PERMISSION_GROUP_NAME");
-                        finish();
-                        return;
-                    }
-                    if (groupName == null) {
-                        groupName = permGroupName;
-                    }
-                }
-
-                androidXFragment = PermissionUsageFragment.newInstance(groupName, numMillis);
-            } break;
 
             case Intent.ACTION_MANAGE_APP_PERMISSION: {
                 if (DeviceUtils.isAuto(this) || DeviceUtils.isTelevision(this)
@@ -250,6 +222,15 @@ public final class ManagePermissionsActivity extends FragmentActivity {
         NavGraph graph = inflater.inflate(R.navigation.nav_graph);
         graph.setStartDestination(startDestination);
         navHost.getNavController().setGraph(graph, args);
+    }
+
+    @Override
+    public ActionBar getActionBar() {
+        ActionBar ab = super.getActionBar();
+        if (ab != null) {
+            ab.setHomeActionContentDescription(R.string.back);
+        }
+        return ab;
     }
 
     @Override

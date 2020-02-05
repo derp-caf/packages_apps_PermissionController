@@ -417,5 +417,23 @@
                 </intent-filter>
             </service>
         </required-components>
+        <app-ops>
+            <app-op name="android:system_alert_window" mode="allowed" />
+        </app-ops>
+    </role>
+
+    <role
+        name="android.app.role.SYSTEM_GALLERY"
+        defaultHolders="config_systemGallery"
+        exclusive="true"
+        systemOnly="true"
+        visible="false">
+        <permissions>
+            <permission-set name="storage" />
+            <permission name="android.permission.ACCESS_MEDIA_LOCATION" />
+        </permissions>
+        <app-ops>
+            <app-op name="android:manage_external_storage" mode="allowed" />
+        </app-ops>
     </role>
 </roles>
