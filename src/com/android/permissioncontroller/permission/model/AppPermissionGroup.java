@@ -1406,7 +1406,11 @@ public final class AppPermissionGroup implements Comparable<AppPermissionGroup> 
                     | (permission.isPolicyFixed() ? PackageManager.FLAG_PERMISSION_POLICY_FIXED : 0)
                     | (permission.isReviewRequired()
                     ? PackageManager.FLAG_PERMISSION_REVIEW_REQUIRED : 0)
-                    | (permission.isOneTime() ? PackageManager.FLAG_PERMISSION_ONE_TIME : 0);
+                    | (permission.isOneTime() ? PackageManager.FLAG_PERMISSION_ONE_TIME : 0)
+                    | (permission.isAutoRevoke()
+                    ? PackageManager.FLAG_PERMISSION_AUTO_REVOKE_IF_UNUSED : 0)
+                    | (permission.isAutoRevokeUserSet()
+                    ? PackageManager.FLAG_PERMISSION_AUTO_REVOKE_USER_SET : 0);
 
             mPackageManager.updatePermissionFlags(permission.getName(),
                     mPackageInfo.packageName,
