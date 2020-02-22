@@ -30,8 +30,8 @@ import com.android.permissioncontroller.permission.data.PackagePermissionsLiveDa
 import com.android.permissioncontroller.permission.data.SmartUpdateMediatorLiveData
 import com.android.permissioncontroller.permission.data.UserPackageInfosLiveData
 import com.android.permissioncontroller.permission.data.get
-import com.android.permissioncontroller.permission.model.livedatatypes.AppPermGroupUiInfo.PermGrantState
 import com.android.permissioncontroller.permission.model.livedatatypes.AppPermGroupUiInfo
+import com.android.permissioncontroller.permission.model.livedatatypes.AppPermGroupUiInfo.PermGrantState
 import com.android.permissioncontroller.permission.model.livedatatypes.LightPackageInfo
 import com.android.permissioncontroller.permission.utils.Utils
 import java.util.function.IntConsumer
@@ -54,7 +54,7 @@ class PermissionControllerServiceModel(private val service: PermissionController
      * @param onChangedFun The function we wish to be called upon livedata updates
      * @param <T> The type of the livedata and observer
      */
-    private fun <T> observeAndCheckForLifecycleState(
+    fun <T> observeAndCheckForLifecycleState(
         liveData: LiveData<T>,
         onChangedFun: (t: T?) -> Unit
     ) {
