@@ -18,15 +18,17 @@
 
 package com.android.permissioncontroller.permission.service
 
+import android.Manifest
 import android.app.ActivityManager
 import android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_TOP_SLEEPING
+import android.app.AppOpsManager
+import android.app.AppOpsManager.MODE_ALLOWED
 import android.app.AppOpsManager.MODE_DEFAULT
-import android.app.AppOpsManager.MODE_IGNORED
-import android.app.AppOpsManager.OPSTR_AUTO_REVOKE_PERMISSIONS_IF_UNUSED
 import android.app.job.JobInfo
 import android.app.job.JobParameters
 import android.app.job.JobScheduler
 import android.app.job.JobService
+import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.app.usage.UsageStatsManager.INTERVAL_DAILY
 import android.app.usage.UsageStatsManager.INTERVAL_MONTHLY
@@ -34,9 +36,10 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager.FLAG_PERMISSION_AUTO_REVOKED
-import android.content.pm.PackageManager.FLAG_PERMISSION_USER_SET
+import android.content.pm.PackageManager.*
 import android.os.Process.myUserHandle
+import android.os.UserHandle
+import android.os.UserManager
 import android.permission.PermissionManager
 import android.provider.DeviceConfig
 import android.util.Log
@@ -52,18 +55,12 @@ import com.android.permissioncontroller.permission.data.PackagePermissionsLiveDa
 import com.android.permissioncontroller.permission.data.UserPackageInfosLiveData
 import com.android.permissioncontroller.permission.model.livedatatypes.LightAppPermGroup
 import com.android.permissioncontroller.permission.model.livedatatypes.LightPackageInfo
-import com.android.permissioncontroller.permission.utils.KotlinUtils
+import com.android.permissioncontroller.permission.utils.*
 import com.android.permissioncontroller.permission.utils.Utils.PROPERTY_AUTO_REVOKE_CHECK_FREQUENCY_MILLIS
 import com.android.permissioncontroller.permission.utils.Utils.PROPERTY_AUTO_REVOKE_UNUSED_THRESHOLD_MILLIS
-import com.android.permissioncontroller.permission.utils.application
-import com.android.permissioncontroller.permission.utils.forEachInParallel
-import com.android.permissioncontroller.permission.utils.updatePermissionFlags
+import kotlinx.coroutines.*
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit.DAYS
 import java.util.concurrent.TimeUnit.SECONDS
 import kotlin.random.Random
@@ -128,16 +125,44 @@ private suspend fun revokePermissionsOnUnusedApps(context: Context) {
 
     // TODO eugenesusla: adapt UsageStats into a LiveData
     val stats = withContext(IO) {
-        context.getSystemService(UsageStatsManager::class.java)!!
+        context.getSystemService<UsageStatsManager>()
             .queryUsageStats(
                 if (DEBUG) INTERVAL_DAILY else INTERVAL_MONTHLY,
                 now - UNUSED_THRESHOLD_MS,
                 now)
     }
+    val profileUsersStats: Deferred<List<List<UsageStats>>> =
+            GlobalScope.async(IO, start = CoroutineStart.LAZY) {
+        context
+                .getSystemService<UserManager>()
+                .enabledProfiles
+                .map { user ->
+                    context.forUser(user)
+                            .getSystemService<UsageStatsManager>()
+                            .queryUsageStats(
+                                    if (DEBUG) INTERVAL_DAILY else INTERVAL_MONTHLY,
+                                    now - UNUSED_THRESHOLD_MS,
+                                    now)
+                }
+    }
 
     for (stat in stats) {
-        if (now - stat.lastTimeVisible <= UNUSED_THRESHOLD_MS) {
-            unusedApps.removeAll { it.packageName == stat.packageName }
+        var lastTimeVisible: Long = stat.lastTimeVisible
+        val pkg = stat.packageName
+        if (context.isPackageCrossProfile(pkg)) {
+            profileUsersStats
+                    .await()
+                    .fold(lastTimeVisible) { result, profileStats ->
+                        val time: Long = profileStats
+                                .find { it.packageName == pkg }
+                                ?.lastTimeVisible
+                                ?: result
+                        Math.max(result, time)
+                    }
+        }
+
+        if (now - lastTimeVisible <= UNUSED_THRESHOLD_MS) {
+            unusedApps.removeAll { it.packageName == pkg }
         }
     }
 
@@ -146,7 +171,7 @@ private suspend fun revokePermissionsOnUnusedApps(context: Context) {
     }
 
     val manifestExemptPackages: Set<String> = withContext(IO) {
-        context.getSystemService(PermissionManager::class.java)
+        context.getSystemService<PermissionManager>()
                 .getAutoRevokeExemptionGrantedPackages()
     }
 
@@ -156,8 +181,7 @@ private suspend fun revokePermissionsOnUnusedApps(context: Context) {
         }
 
         val packageName = pkg.packageName
-        val packageUid = pkg.uid
-        if (isPackageAutoRevokeExempt(packageName, packageUid, manifestExemptPackages)) {
+        if (isPackageAutoRevokeExempt(pkg, manifestExemptPackages)) {
             return@forEachInParallel
         }
 
@@ -227,39 +251,53 @@ private suspend fun revokePermissionsOnUnusedApps(context: Context) {
 }
 
 private suspend fun isPackageAutoRevokeExempt(
-    packageName: String,
-    packageUid: Int,
+    pkg: LightPackageInfo,
     manifestExemptPackages: Set<String>
 ): Boolean {
-    val whitelistAppOpMode =
-            AppOpLiveData[packageName, OPSTR_AUTO_REVOKE_PERMISSIONS_IF_UNUSED, packageUid]
-                    .getInitializedValue()
-    if (!DEBUG && whitelistAppOpMode == MODE_DEFAULT) {
-        // Initial state - consider exempt until this is set by installer(or user)
-        return true
-    }
+    val packageName = pkg.packageName
+    val packageUid = pkg.uid
 
-    // TODO eugenesusla: use @SystemApi reference
-    val OPSTR_AUTO_REVOKE_MANAGED_BY_INSTALLER = "android:auto_revoke_managed_by_installer"
-    val appOpUserSet =
-            AppOpLiveData[packageName, OPSTR_AUTO_REVOKE_MANAGED_BY_INSTALLER, packageUid]
-                    .getInitializedValue() == MODE_IGNORED
-    if (appOpUserSet) {
-        if (whitelistAppOpMode == MODE_IGNORED) {
-            // User exempt
+    val whitelistAppOpMode =
+            AppOpLiveData[packageName,
+                    AppOpsManager.OPSTR_AUTO_REVOKE_PERMISSIONS_IF_UNUSED, packageUid]
+                    .getInitializedValue()
+    if (whitelistAppOpMode == MODE_DEFAULT) {
+        // Initial state - whitelist not explicitly overridden by either user or installer
+
+        if (DEBUG) {
+            // Suppress exemptions to allow debugging
+            return false
+        }
+
+        if (pkg.targetSdkVersion <= android.os.Build.VERSION_CODES.Q) {
+            // Q- packages exempt by default
             return true
         } else {
-            // User explicitly opted it
+            // R+ packages only exempt with manifest attribute
+            return packageName in manifestExemptPackages
         }
-    } else if (packageName in manifestExemptPackages) {
-        // Manifest exempt
-        return true
-    } else if (whitelistAppOpMode == MODE_IGNORED) {
-        // Installer exempt
-        return true
     }
-    return false
+    return whitelistAppOpMode != MODE_ALLOWED
 }
+
+private fun Context.isPackageCrossProfile(pkg: String): Boolean {
+    return packageManager.checkPermission(
+            Manifest.permission.INTERACT_ACROSS_PROFILES, pkg) == PERMISSION_GRANTED ||
+            packageManager.checkPermission(
+                    Manifest.permission.INTERACT_ACROSS_USERS, pkg) == PERMISSION_GRANTED ||
+            packageManager.checkPermission(
+                    Manifest.permission.INTERACT_ACROSS_USERS_FULL, pkg) == PERMISSION_GRANTED
+}
+
+private fun Context.forUser(user: UserHandle): Context {
+    return Utils.getUserContext(application, user)
+}
+
+private fun Context.forParentUser(): Context {
+    return Utils.getParentUserContext(this)
+}
+
+private inline fun <reified T> Context.getSystemService() = getSystemService(T::class.java)!!
 
 /**
  * A job to check for apps unused in the last [UNUSED_THRESHOLD_MS]ms every
