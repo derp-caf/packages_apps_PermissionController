@@ -44,6 +44,7 @@ import android.os.UserHandle
 import android.os.UserManager
 import android.permission.PermissionManager
 import android.provider.DeviceConfig
+import android.provider.Settings
 import android.util.Log
 import androidx.annotation.MainThread
 import com.android.permissioncontroller.Constants
@@ -80,25 +81,30 @@ import kotlin.random.Random
 private const val LOG_TAG = "AutoRevokePermissions"
 private const val DEBUG = false
 
-private val UNUSED_THRESHOLD_MS = if (DEBUG)
-    SECONDS.toMillis(1)
-else
-    DeviceConfig.getLong(DeviceConfig.NAMESPACE_PERMISSIONS,
-        PROPERTY_AUTO_REVOKE_UNUSED_THRESHOLD_MILLIS,
-        DAYS.toMillis(90))
+private val DEFAULT_UNUSED_THRESHOLD_MS = DAYS.toMillis(90)
+private fun getUnusedThresholdMs(context: Context) = when {
+    DEBUG -> SECONDS.toMillis(1)
+    TeamfoodSettings.get(context) != null -> TeamfoodSettings.get(context)!!.unusedThresholdMs
+    else -> DeviceConfig.getLong(DeviceConfig.NAMESPACE_PERMISSIONS,
+            PROPERTY_AUTO_REVOKE_UNUSED_THRESHOLD_MILLIS,
+            DEFAULT_UNUSED_THRESHOLD_MS)
+}
 
-private val CHECK_FREQUENCY_MS = DeviceConfig.getLong(
-    DeviceConfig.NAMESPACE_PERMISSIONS,
-    PROPERTY_AUTO_REVOKE_CHECK_FREQUENCY_MILLIS,
-    DAYS.toMillis(1))
+private val DEFAULT_CHECK_FREQUENCY_MS = DAYS.toMillis(15)
+private fun getCheckFrequencyMs(context: Context) = when {
+    TeamfoodSettings.get(context) != null -> TeamfoodSettings.get(context)!!.checkFrequencyMs
+    else -> DeviceConfig.getLong(
+            DeviceConfig.NAMESPACE_PERMISSIONS,
+            PROPERTY_AUTO_REVOKE_CHECK_FREQUENCY_MILLIS,
+            DEFAULT_CHECK_FREQUENCY_MS)
+}
 
 private val SERVER_LOG_ID =
     PERMISSION_GRANT_REQUEST_RESULT_REPORTED__RESULT__AUTO_UNUSED_APP_PERMISSION_REVOKED
 
-private val isAutoRevokeEnabled: Boolean
-    get() {
-        return CHECK_FREQUENCY_MS > 0 && UNUSED_THRESHOLD_MS > 0
-    }
+private fun isAutoRevokeEnabled(context: Context): Boolean {
+    return getCheckFrequencyMs(context) > 0 && getUnusedThresholdMs(context) > 0
+}
 
 /**
  * Receiver of the onBoot event.
@@ -108,13 +114,13 @@ class AutoRevokeOnBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (DEBUG) {
             Log.i(LOG_TAG, "scheduleAutoRevokePermissions " +
-                "with frequency ${CHECK_FREQUENCY_MS}ms" +
-                "and threshold ${UNUSED_THRESHOLD_MS}ms")
+                "with frequency ${getCheckFrequencyMs(context)}ms" +
+                "and threshold ${getUnusedThresholdMs(context)}ms")
         }
         val jobInfo = JobInfo.Builder(
             Constants.AUTO_REVOKE_JOB_ID,
             ComponentName(context, AutoRevokeService::class.java))
-            .setPeriodic(CHECK_FREQUENCY_MS)
+            .setPeriodic(getCheckFrequencyMs(context))
             .build()
         val status = context.getSystemService(JobScheduler::class.java)!!.schedule(jobInfo)
         if (status != JobScheduler.RESULT_SUCCESS) {
@@ -126,7 +132,7 @@ class AutoRevokeOnBootReceiver : BroadcastReceiver() {
 
 @MainThread
 private suspend fun revokePermissionsOnUnusedApps(context: Context) {
-    if (!isAutoRevokeEnabled) {
+    if (!isAutoRevokeEnabled(context)) {
         return
     }
 
@@ -141,7 +147,7 @@ private suspend fun revokePermissionsOnUnusedApps(context: Context) {
         context.getSystemService<UsageStatsManager>()
             .queryUsageStats(
                 if (DEBUG) INTERVAL_DAILY else INTERVAL_MONTHLY,
-                now - UNUSED_THRESHOLD_MS,
+                now - getUnusedThresholdMs(context),
                 now)
     }
     val profileUsersStats: Deferred<List<List<UsageStats>>> =
@@ -154,7 +160,7 @@ private suspend fun revokePermissionsOnUnusedApps(context: Context) {
                         .getSystemService<UsageStatsManager>()
                         .queryUsageStats(
                             if (DEBUG) INTERVAL_DAILY else INTERVAL_MONTHLY,
-                            now - UNUSED_THRESHOLD_MS,
+                            now - getUnusedThresholdMs(context),
                             now)
                 }
         }
@@ -184,7 +190,7 @@ private suspend fun revokePermissionsOnUnusedApps(context: Context) {
         }
 
         // Threshold check
-        if (now - lastTimeVisible <= UNUSED_THRESHOLD_MS) {
+        if (now - lastTimeVisible <= getUnusedThresholdMs(context)) {
             unusedApps.removeAll { it.packageName == pkg }
         }
     }
@@ -273,6 +279,14 @@ private suspend fun revokePermissionsOnUnusedApps(context: Context) {
     }
 }
 
+suspend fun isPackageAutoRevokeExempt(
+    context: Context,
+    pkg: LightPackageInfo
+) = isPackageAutoRevokeExempt(pkg, withContext(IPC) {
+    context.getSystemService<PermissionManager>()
+            .getAutoRevokeExemptionGrantedPackages()
+})
+
 private suspend fun isPackageAutoRevokeExempt(
     pkg: LightPackageInfo,
     manifestExemptPackages: Set<String>
@@ -323,8 +337,8 @@ private fun Context.forParentUser(): Context {
 private inline fun <reified T> Context.getSystemService() = getSystemService(T::class.java)!!
 
 /**
- * A job to check for apps unused in the last [UNUSED_THRESHOLD_MS]ms every
- * [CHECK_FREQUENCY_MS]ms and [revokePermissionsOnUnusedApps] for them
+ * A job to check for apps unused in the last [getUnusedThresholdMs]ms every
+ * [getCheckFrequencyMs]ms and [revokePermissionsOnUnusedApps] for them
  */
 class AutoRevokeService : JobService() {
     var job: Job? = null
@@ -351,5 +365,49 @@ class AutoRevokeService : JobService() {
         Log.w(LOG_TAG, "onStopJob after ${System.currentTimeMillis() - jobStartTime}ms")
         job?.cancel()
         return true
+    }
+}
+
+private data class TeamfoodSettings(
+    val enabledForPreRApps: Boolean,
+    val unusedThresholdMs: Long,
+    val checkFrequencyMs: Long
+) {
+    companion object {
+        private var cached: TeamfoodSettings? = null
+
+        fun get(context: Context): TeamfoodSettings? {
+            if (cached != null) return cached
+
+            return Settings.Global.getString(context.contentResolver,
+                "auto_revoke_parameters" /* Settings.Global.AUTO_REVOKE_PARAMETERS */)?.let { str ->
+
+                if (DEBUG) {
+                    Log.i(LOG_TAG, "Parsing teamfood setting value: $str")
+                }
+                str.split(",")
+                    .mapNotNull {
+                        val keyValue = it.split("=")
+                        keyValue.getOrNull(0)?.let { key ->
+                            key to keyValue.getOrNull(1)
+                        }
+                    }
+                    .toMap()
+                    .let { pairs ->
+                        TeamfoodSettings(
+                            enabledForPreRApps = pairs["enabledForPreRApps"] == "true",
+                            unusedThresholdMs =
+                                pairs["unusedThresholdMs"]?.toLongOrNull()
+                                        ?: DEFAULT_UNUSED_THRESHOLD_MS,
+                            checkFrequencyMs = pairs["checkFrequencyMs"]?.toLongOrNull()
+                                    ?: DEFAULT_CHECK_FREQUENCY_MS)
+                    }
+            }.also {
+                cached = it
+                if (DEBUG) {
+                    Log.i(LOG_TAG, "Parsed teamfood setting value: $it")
+                }
+            }
+        }
     }
 }
