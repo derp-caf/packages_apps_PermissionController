@@ -17,4 +17,6 @@
 
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <string name="perm_a">Permission A</string>
+    <string name="perm_b">Permission B</string>
+    <string name="perm_c">Permission C</string>
 </resources>
