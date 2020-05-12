@@ -218,7 +218,7 @@ public class GrantPermissionsActivity extends Activity
         switch (getPermissionPolicy()) {
             case DevicePolicyManager.PERMISSION_POLICY_AUTO_GRANT: {
                 final String[] filterPermissions = new String[]{permName};
-                group.grantRuntimePermissions(false, filterPermissions);
+                group.grantRuntimePermissions(false, false, filterPermissions);
                 group.setPolicyFixed(filterPermissions);
                 state.mState = GroupState.STATE_ALLOWED;
                 skipGroup = true;
@@ -240,7 +240,7 @@ public class GrantPermissionsActivity extends Activity
 
             default: {
                 if (group.areRuntimePermissionsGranted()) {
-                    group.grantRuntimePermissions(false, new String[]{permName});
+                    group.grantRuntimePermissions(false, false, new String[]{permName});
                     state.mState = GroupState.STATE_ALLOWED;
                     skipGroup = true;
 
@@ -392,9 +392,10 @@ public class GrantPermissionsActivity extends Activity
                 if (mAppPermissions.getPackageInfo().applicationInfo.targetSdkVersion
                         >= Build.VERSION_CODES.R && mRequestedPermissions.length > 1
                         && group.isBackgroundGroup()) {
-                    throw new SecurityException("Apps targeting " + Build.VERSION_CODES.R + " must"
+                    Log.e(LOG_TAG, "Apps targeting " + Build.VERSION_CODES.R + " must"
                             + " have foreground permission before requesting background and must"
                             + " request background on its own.");
+                    finish();
                 }
 
                 addRequestedPermissions(group, affectedPermissions.get(i), icicle == null);
@@ -1109,7 +1110,7 @@ public class GrantPermissionsActivity extends Activity
                     groupState.mGroup.setOneTime(false);
                 }
 
-                groupState.mGroup.grantRuntimePermissions(doNotAskAgain,
+                groupState.mGroup.grantRuntimePermissions(true, doNotAskAgain,
                         groupState.affectedPermissions);
                 groupState.mState = GroupState.STATE_ALLOWED;
 
