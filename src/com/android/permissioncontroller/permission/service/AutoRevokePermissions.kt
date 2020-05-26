@@ -177,7 +177,7 @@ suspend fun dumpAutoRevokePermissions(context: Context): AutoRevokePermissionsDu
     }
 
     val dumpData = GlobalScope.async(IPC) {
-        AutoRevokeDumpLiveData(context).getInitializedValue(staleOk = true)
+        AutoRevokeDumpLiveData(context).getInitializedValue()
     }
 
     return AutoRevokePermissionsDumpProto.newBuilder()
@@ -242,7 +242,10 @@ private suspend fun revokePermissionsOnUnusedApps(
     val now = System.currentTimeMillis()
     val firstBootTime = context.firstBootTime
 
-    val unusedApps = AllPackageInfosLiveData.getInitializedValue(staleOk = true).toMutableMap()
+    // TODO ntmyren: remove once b/154796729 is fixed
+    Log.i(LOG_TAG, "getting UserPackageInfoLiveData for all users " +
+        "in AutoRevokePermissions")
+    val unusedApps = AllPackageInfosLiveData.getInitializedValue().toMutableMap()
 
     val userStats = UsageStatsLiveData[getUnusedThresholdMs(context),
         if (DEBUG_OVERRIDE_THRESHOLDS) INTERVAL_DAILY else INTERVAL_MONTHLY].getInitializedValue()
@@ -254,7 +257,7 @@ private suspend fun revokePermissionsOnUnusedApps(
                     }.toMap())
         }
     }
-    for (user in unusedApps.keys) {
+    for (user in unusedApps.keys.toList()) {
         if (user !in userStats.keys) {
             if (DEBUG) {
                 DumpableLog.i(LOG_TAG, "Ignoring user ${user.identifier}")
@@ -303,12 +306,12 @@ private suspend fun revokePermissionsOnUnusedApps(
 
     // TODO: Support more than the current user
     val manifestExemptPackages = AutoRevokeManifestExemptPackagesLiveData[myUserHandle()]
-            .getInitializedValue(staleOk = true)
+            .getInitializedValue()
 
     // Exempt important system-bound services
     // TODO: Support more than the current user
     val exemptServicePackages = ExemptServicesLiveData[myUserHandle()]
-            .getInitializedValue(staleOk = true).keys
+            .getInitializedValue().keys
 
     val revokedApps = mutableListOf<Pair<String, UserHandle>>()
     val userManager = context.getSystemService(UserManager::class.java)
@@ -334,7 +337,7 @@ private suspend fun revokePermissionsOnUnusedApps(
             val anyPermsRevoked = AtomicBoolean(false)
             val pkgPermGroups: Map<String, List<String>>? =
                 PackagePermissionsLiveData[packageName, user]
-                    .getInitializedValue(staleOk = true)
+                    .getInitializedValue()
 
             pkgPermGroups?.entries?.forEachInParallel(Main) { (groupName, _) ->
                 if (groupName == PackagePermissionsLiveData.NON_RUNTIME_NORMAL_PERMS) {
@@ -343,7 +346,7 @@ private suspend fun revokePermissionsOnUnusedApps(
 
                 val group: LightAppPermGroup =
                     LightAppPermGroupLiveData[packageName, groupName, user]
-                        .getInitializedValue(staleOk = true)
+                        .getInitializedValue()
                         ?: return@forEachInParallel
 
                 val fixed = group.isBackgroundFixed || group.isForegroundFixed
@@ -432,8 +435,15 @@ private suspend fun revokePermissionsOnUnusedApps(
     return revokedApps
 }
 
-private fun List<UsageStats>.lastTimeVisible(pkgName: String) =
-        find { it.packageName == pkgName }?.lastTimeVisible ?: 0L
+private fun List<UsageStats>.lastTimeVisible(pkgName: String): Long {
+    var result = 0L
+    for (stat in this) {
+        if (stat.packageName == pkgName) {
+            result = Math.max(result, stat.lastTimeVisible)
+        }
+    }
+    return result
+}
 
 suspend fun isPackageAutoRevokeExempt(
     context: Context,
@@ -1025,8 +1035,7 @@ private class AutoRevokeDumpLiveData(context: Context) :
 
                     pkgs.add(AutoRevokeDumpPackageData(pkg.uid, pkg.packageName,
                             pkg.firstInstallTime,
-                            usages.value!![user]
-                                    ?.find { it.packageName == pkg.packageName }?.lastTimeVisible,
+                            usages.value!![user]?.lastTimeVisible(pkg.packageName),
                             autoRevokeManifestExemptPackages!![user]!!.value!!
                                     .contains(pkg.packageName),
                             pkgAutoRevokeState!![user to pkg.packageName]!!.value
