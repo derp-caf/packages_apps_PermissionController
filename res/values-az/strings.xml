@@ -21,6 +21,7 @@
     <string name="permission_search_keyword" msgid="1652964722383449182">"icazələr"</string>
     <string name="cancel" msgid="7279939269964834974">"Ləğv edin"</string>
     <string name="back" msgid="8739808065891653074">"Geri"</string>
+    <string name="uninstall_or_disable" msgid="2397169592250216844">"Silin və ya deaktiv edin"</string>
     <string name="app_not_found_dlg_title" msgid="8897078571059217849">"Tətbiq tapılmadı"</string>
     <string name="grant_dialog_button_deny" msgid="1649644200597601964">"Rədd edin"</string>
     <string name="grant_dialog_button_deny_and_dont_ask_again" msgid="5716583584580362144">"Rədd edin və təkrar soruşmayın"</string>
@@ -212,7 +213,7 @@
     <string name="accessibility_service_dialog_bottom_text_single" msgid="6932810943462703517">"<xliff:g id="SERVICE_NAME">%s</xliff:g> ekran, əməliyyat və daxiletməyə baxa, əməliyyatlar icra edə və displeyə nəzarət edə bilər."</string>
     <string name="accessibility_service_dialog_bottom_text_multiple" msgid="1387803460488775887">"Bu tətbiqlər ekran, əməliyyat və daxiletməyə baxa, əməliyyatlar icra edə və displeyə nəzarət edə bilər."</string>
     <string name="role_assistant_label" msgid="4296361982493275449">"Standart rəqəmsal assistent"</string>
-    <string name="role_assistant_short_label" msgid="2965228260285438681">"Rəqəmsal assistent tətbiqi"</string>
+    <string name="role_assistant_short_label" msgid="2965228260285438681">"Rəq. assistent tətbiqi"</string>
     <string name="role_assistant_description" msgid="8677846995018695304">"Yardım tətbiqləri baxdığınız məlumatdan asılı olaraq Sizə kömək edə bilər. Bəzi tətbiqlər tamamlanmış yardım üçün həm başladıcı, həm də səs daxiletməsi xidmətlərini dəstəkləyir."</string>
     <string name="role_assistant_request_title" msgid="1838385568238889604">"<xliff:g id="APP_NAME">%1$s</xliff:g> defolt yardım tətbiqi olaraq ayarlansın?"</string>
     <string name="role_assistant_request_description" msgid="1086168907357494789">"SMS, zəng siyahısına giriş əldə edir"</string>
@@ -250,7 +251,7 @@
     <string name="role_call_redirection_description" msgid="769231030043298555">"Gedən zəngləri başqa telefon nömrəsinə yönləndirməyə imkan verən tətbiqlər"</string>
     <string name="role_call_redirection_request_title" msgid="5719129486575088263">"<xliff:g id="APP_NAME">%1$s</xliff:g> defolt zəng yönləndirmə tətbiqi olaraq ayarlansın?"</string>
     <string name="role_call_redirection_request_description" msgid="6117172580087594081">"İcazəyə ehtiyac yoxdur"</string>
-    <string name="role_call_screening_label" msgid="5366988848919437946">"Defolt zəng edənin ID-si &amp; spam tətbiqi"</string>
+    <string name="role_call_screening_label" msgid="5366988848919437946">"Defolt yığan ID &amp; spam tətbiqi"</string>
     <string name="role_call_screening_short_label" msgid="7596133131034442273">"Zəng ID-si &amp; spam tətbiqi"</string>
     <string name="role_call_screening_description" msgid="4470066768170089758">"Zəngləri müəyyən etməyə, spam və avtomatik zəngləri blok etməyə, həmçinin lazımsız nömrələri qara siyahıya salmağa imkan verən tətbiqlər"</string>
     <string name="role_call_screening_request_title" msgid="4775643776524356653">"<xliff:g id="APP_NAME">%1$s</xliff:g> defolt zəng edənin ID-si və spam tətbiqi olaraq ayarlansın?"</string>
@@ -313,4 +314,8 @@
     <string name="auto_granted_permissions" msgid="5726065128917092357">"İdarə edilən icazələr"</string>
     <string name="auto_granted_location_permission_notification_title" msgid="6496820273286832200">"Məkana giriş edilə bilər"</string>
     <string name="auto_granted_permission_notification_body" msgid="492268790630112781">"İT admininiz <xliff:g id="APP_NAME">%s</xliff:g> tətbiqinə məkanınıza giriş icazəsi verir"</string>
+    <string name="fg_capabilities_sound_trigger" msgid="4937457992874270459">"Bu tətbiq səsi aşkarlamalı olduğuna görə bəzi seçimlər əlçatan deyil"</string>
+    <string name="fg_capabilities_assistant" msgid="6285681832588297471">"Bu tətbiq defolt rəqəmsal assistentiniz olduğuna görə bəzi seçimlər əlçatan deyil"</string>
+    <string name="fg_capabilities_voice_interaction" msgid="5211466473396010463">"Bu tətbiq səs daxiletməsi üçün istifadə edildiyinə görə bəzi seçimlər əlçatan deyil"</string>
+    <string name="fg_capabilities_carrier" msgid="4063467791736574406">"Bu tətbiq operator tərəfindən idarə edildiyinə görə bəzi seçimlər əlçatan deyil"</string>
 </resources>
