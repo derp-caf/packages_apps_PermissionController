@@ -163,10 +163,6 @@ fun isAutoRevokeEnabled(context: Context): Boolean {
             getUnusedThresholdMs(context) != Long.MAX_VALUE
 }
 
-fun isInAutoRevokeDogfood(context: Context): Boolean {
-    return TeamfoodSettings.get(context)?.enabledForPreRApps ?: false
-}
-
 /**
  * @return dump of auto revoke service as a proto
  */
@@ -226,6 +222,8 @@ class AutoRevokeOnBootReceiver : BroadcastReceiver() {
             DumpableLog.e(LOG_TAG,
                 "Could not schedule ${AutoRevokeService::class.java.simpleName}: $status")
         }
+
+        reGrantAutoRevokedPermissionsIfNeeded(context)
     }
 }
 
@@ -278,10 +276,7 @@ private suspend fun revokePermissionsOnUnusedApps(
             lastTimeVisible = Math.max(lastTimeVisible, packageInfo.firstInstallTime)
 
             // Limit by first boot time
-            // TODO eugenesusla: temporarily disabled for dogfooders for troubleshooting
-            if (!isInAutoRevokeDogfood(context)) {
-                lastTimeVisible = Math.max(lastTimeVisible, firstBootTime)
-            }
+            lastTimeVisible = Math.max(lastTimeVisible, firstBootTime)
 
             // Handle cross-profile apps
             if (context.isPackageCrossProfile(pkgName)) {
@@ -517,6 +512,16 @@ private val Context.firstBootTime: Long get() {
     time = System.currentTimeMillis()
     sharedPreferences.edit().putLong(PREF_KEY_FIRST_BOOT_TIME, time).apply()
     return time
+}
+
+private fun reGrantAutoRevokedPermissionsIfNeeded(context: Context) {
+    val sharedPreferences = context.sharedPreferences
+    val key = "auto_revoke_regrant_done"
+    if (!sharedPreferences.getBoolean(key, false)) {
+        context.startService(
+                Intent().setComponent(ComponentName(context, AutoRevokeReGrantService::class.java)))
+        sharedPreferences.edit().putBoolean(key, true).apply()
+    }
 }
 
 /**
@@ -1020,16 +1025,20 @@ private class AutoRevokeDumpLiveData(context: Context) :
                             continue
                         }
 
-                        pkgPermGroups[user to pkg.packageName]!![groupName]!!.value!!.apply {
-                            groups.add(AutoRevokeDumpGroupData(groupName,
-                                    isBackgroundFixed || isForegroundFixed,
-                                    permissions.any { (_, p) -> p.isGrantedIncludingAppOp },
-                                    isGrantedByDefault,
-                                    isGrantedByRole,
-                                    isUserSensitive,
-                                    revokedPermGroupNames.value!![pkg.packageName to user]
-                                            ?.contains(groupName) ?: false
-                            ))
+                        pkgPermGroups[user to pkg.packageName]?.let {
+                            it[groupName]?.value?.apply {
+                                groups.add(AutoRevokeDumpGroupData(groupName,
+                                        isBackgroundFixed || isForegroundFixed,
+                                        permissions.any { (_, p) -> p.isGrantedIncludingAppOp },
+                                        isGrantedByDefault,
+                                        isGrantedByRole,
+                                        isUserSensitive,
+                                        revokedPermGroupNames.value?.let {
+                                            it[pkg.packageName to user]
+                                                    ?.contains(groupName)
+                                        } ?: false
+                                ))
+                            }
                         }
                     }
 
